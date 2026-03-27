@@ -172,7 +172,7 @@ async function start(_id: number, disconnect: () => void) {
       return;
     }
 
-    ctx.body = "OK";
+    ctx.body = `OK ${process.env.BUILD_ID ?? "dev"}`;
   });
 
   app.use(router.routes());

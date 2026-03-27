@@ -47,6 +47,16 @@ export default class FileHelper {
   }
 
   /**
+   * Checks if a file is an excalidraw diagram by filename.
+   *
+   * @param title The filename or title of the file.
+   * @returns True if the file is an excalidraw diagram.
+   */
+  static isExcalidraw(title: string) {
+    return /\.excalidraw$/i.test(title);
+  }
+
+  /**
    * Download a file from a URL and return it as a File object.
    *
    * @param url The URL to download the file from

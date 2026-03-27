@@ -25,6 +25,43 @@ import { createContext } from "@server/context";
 const router = new Router();
 const scopes: string[] = [];
 
+/**
+ * Fetch a small thumbnail of the user's profile photo from Microsoft Graph.
+ * Returns a data URI under 4 KB, or undefined if unavailable.
+ *
+ * @param accessToken - oauth2 access token with User.Read scope.
+ * @returns data URI string, or undefined if no photo is available.
+ */
+async function fetchAvatarUrl(
+  accessToken: string
+): Promise<string | undefined> {
+  try {
+    // Request the smallest available thumbnail (48x48) to stay under the
+    // 4096-character avatarUrl column limit.
+    const response = await fetch(
+      "https://graph.microsoft.com/v1.0/me/photos/48x48/$value",
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
+    if (!response.ok) {
+      return undefined;
+    }
+    const buffer = await response.arrayBuffer();
+    const contentType = response.headers.get("content-type") ?? "image/jpeg";
+    const base64 = Buffer.from(buffer).toString("base64");
+    const dataUri = `data:${contentType};base64,${base64}`;
+
+    // Guard against exceeding the database column limit.
+    if (dataUri.length > 4000) {
+      return undefined;
+    }
+    return dataUri;
+  } catch {
+    return undefined;
+  }
+}
+
 if (env.AZURE_CLIENT_ID && env.AZURE_CLIENT_SECRET) {
   const strategy = new AzureStrategy(
     {
@@ -83,6 +120,12 @@ if (env.AZURE_CLIENT_ID && env.AZURE_CLIENT_SECRET) {
 
         const organization = organizationResponse.value[0];
 
+        // The JWT picture claim is typically empty for Azure AD. The Graph
+        // photo endpoint returns binary that would need to be uploaded to S3
+        // first (the DB column only accepts URLs). For now, fall back to the
+        // JWT claim which will be undefined for most users.
+        const avatarUrl = profile.picture;
+
         // Note: userPrincipalName is last here for backwards compatibility with
         // previous versions of Outline that did not include it.
         const email =
@@ -120,7 +163,7 @@ if (env.AZURE_CLIENT_ID && env.AZURE_CLIENT_SECRET) {
           user: {
             name: profile.name,
             email,
-            avatarUrl: profile.picture,
+            avatarUrl,
           },
           authenticationProvider: {
             name: config.id,

@@ -18,8 +18,10 @@ import Widget from "../components/Widget";
 import type { MarkdownSerializerState } from "../lib/markdown/serializer";
 import attachmentsRule from "../rules/links";
 import type { ComponentProps } from "../types";
+import FileHelper from "../lib/FileHelper";
 import Node from "./Node";
 import PdfViewer from "../components/PDF";
+import ExcalidrawViewer from "../components/ExcalidrawViewer";
 
 export default class Attachment extends Node {
   get name() {
@@ -127,6 +129,20 @@ export default class Attachment extends Node {
       </>
     );
 
+    const isExcalidraw = FileHelper.isExcalidraw(node.attrs.title);
+
+    if (!embedsDisabled && isExcalidraw && node.attrs.href) {
+      return (
+        <ExcalidrawViewer
+          icon={<FileExtension title={node.attrs.title} />}
+          title={node.attrs.title}
+          context={context}
+          onChangeSize={this.handleChangeSize(props)}
+          {...props}
+        />
+      );
+    }
+
     return node.attrs.preview &&
       !embedsDisabled &&
       node.attrs.contentType === "application/pdf" ? (
@@ -188,9 +204,11 @@ export default class Attachment extends Node {
         const accept =
           node.attrs.contentType === "application/pdf"
             ? ".pdf"
-            : node.type.name === "attachment"
-              ? "*"
-              : null;
+            : FileHelper.isExcalidraw(node.attrs.title)
+              ? ".excalidraw"
+              : node.type.name === "attachment"
+                ? "*"
+                : null;
 
         if (accept === null) {
           return false;
