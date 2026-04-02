@@ -168,7 +168,11 @@ export default class Excalidraw extends Node {
   }
 
   toMarkdown(state: MarkdownSerializerState, node: ProsemirrorNode) {
-    state.write("```excalidraw\n");
+    const meta =
+      node.attrs.width || node.attrs.height
+        ? ` ${JSON.stringify({ width: node.attrs.width, height: node.attrs.height })}`
+        : "";
+    state.write(`\`\`\`excalidraw${meta}\n`);
     state.text(node.attrs.data || "{}", false);
     state.ensureNewLine();
     state.write("```");
@@ -186,7 +190,22 @@ export default class Excalidraw extends Node {
         } catch {
           return { id: uuidv4(), data: "{}" };
         }
-        return { id: uuidv4(), data: raw };
+
+        // Parse optional width/height from fence info string
+        const info = (tok.info || "").replace("excalidraw", "").trim();
+        let width: number | null = null;
+        let height: number | null = null;
+        if (info) {
+          try {
+            const meta = JSON.parse(info);
+            width = typeof meta.width === "number" ? meta.width : null;
+            height = typeof meta.height === "number" ? meta.height : null;
+          } catch {
+            // ignore malformed meta
+          }
+        }
+
+        return { id: uuidv4(), data: raw, width, height };
       },
     };
   }

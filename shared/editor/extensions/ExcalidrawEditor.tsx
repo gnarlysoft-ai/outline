@@ -30,13 +30,13 @@ export default class ExcalidrawEditor extends Extension {
   commands(): Record<string, CommandFactory> {
     return {
       editExcalidraw: (): Command => (state, dispatch) => {
-        if (!dispatch) {
-          return true;
-        }
-
         const selectedNode = this.getSelectedExcalidrawNode(state);
         if (!selectedNode) {
           return false;
+        }
+
+        if (!dispatch) {
+          return true;
         }
 
         this.openEditor(selectedNode);
@@ -70,8 +70,12 @@ export default class ExcalidrawEditor extends Extension {
    */
   @action
   private openEditor(node: Node) {
+    const nodeId = node.attrs.id as string | null;
+    if (!nodeId) {
+      return;
+    }
     this.activeSession = {
-      nodeId: node.attrs.id,
+      nodeId,
       data: node.attrs.data ?? "{}",
     };
   }

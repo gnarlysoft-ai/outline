@@ -122,6 +122,14 @@ export default function ExcalidrawNodeView(props: Props) {
       <Placeholder
         contentEditable={false}
         onClick={isEditable ? onEdit : undefined}
+        onKeyDown={isEditable ? (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onEdit();
+          }
+        } : undefined}
+        role={isEditable ? "button" : undefined}
+        tabIndex={isEditable ? 0 : undefined}
         $isEditable={isEditable}
         className={isSelected ? "ProseMirror-selectednode" : undefined}
       >
@@ -171,6 +179,7 @@ export default function ExcalidrawNodeView(props: Props) {
       </SvgContainer>
       {isEditable && (
         <EditButton
+          type="button"
           onClick={(e) => {
             e.stopPropagation();
             onEdit();

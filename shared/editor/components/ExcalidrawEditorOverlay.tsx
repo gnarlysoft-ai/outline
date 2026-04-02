@@ -96,10 +96,24 @@ export default function ExcalidrawEditorOverlay({
       return false;
     }
     const currentElements = api.getSceneElements();
+    const currentAppState = api.getAppState();
+    const currentFiles = api.getFiles();
     const initialElements = initialData.elements;
-    return currentElements.length !== initialElements.length ||
-      JSON.stringify(currentElements) !== JSON.stringify(initialElements);
-  }, [initialData.elements]);
+
+    if (
+      currentElements.length !== initialElements.length ||
+      JSON.stringify(currentElements) !== JSON.stringify(initialElements)
+    ) {
+      return true;
+    }
+    if (currentAppState.viewBackgroundColor !== initialData.appState?.viewBackgroundColor) {
+      return true;
+    }
+    if (currentFiles && Object.keys(currentFiles).length > 0 && !initialData.files) {
+      return true;
+    }
+    return false;
+  }, [initialData]);
 
   const handleClose = useCallback(() => {
     if (hasUnsavedChanges()) {
