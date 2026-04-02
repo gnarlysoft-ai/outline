@@ -172,10 +172,10 @@ export default class Excalidraw extends Node {
       node.attrs.width || node.attrs.height
         ? ` ${JSON.stringify({ width: node.attrs.width, height: node.attrs.height })}`
         : "";
-    state.write(`\`\`\`excalidraw${meta}\n`);
+    state.write(`:::excalidraw${meta}\n`);
     state.text(node.attrs.data || "{}", false);
     state.ensureNewLine();
-    state.write("```");
+    state.write(":::");
     state.closeBlock(node);
   }
 
