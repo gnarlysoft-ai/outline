@@ -139,8 +139,8 @@ export default class ExcalidrawEditor extends Extension {
     return foundNode;
   }
 
-  widget = (_props: WidgetProps): React.ReactElement => {
-    return React.createElement(
+  widget = (_props: WidgetProps): React.ReactElement =>
+    React.createElement(
       observer(() =>
         this.activeSession
           ? React.createElement(ExcalidrawEditorOverlay, {
@@ -151,5 +151,4 @@ export default class ExcalidrawEditor extends Extension {
           : null
       )
     );
-  };
 }
