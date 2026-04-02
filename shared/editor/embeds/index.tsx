@@ -9,7 +9,6 @@ import { urlRegex } from "../../utils/urls";
 import Image from "../components/Img";
 import Berrycast from "./Berrycast";
 import Diagrams from "./Diagrams";
-import Excalidraw from "./Excalidraw";
 import Dropbox from "./Dropbox";
 import Gist from "./Gist";
 import GitLabSnippet from "./GitLabSnippet";
@@ -724,17 +723,6 @@ const embeds: EmbedDescriptor[] = [
     ],
     icon: <Img src="/images/youtube.png" alt="YouTube" />,
     component: YouTube,
-  }),
-  new EmbedDescriptor({
-    id: "excalidraw",
-    title: "Excalidraw",
-    keywords: "draw whiteboard diagram sketch",
-    regexMatch: [
-      /^https?:\/\/(?:www\.)?excalidraw\.com\/#json=(.+)$/,
-      /^https?:\/\/(?:www\.)?excalidraw\.com\/l\/(.+)$/,
-    ],
-    icon: <Img src="/images/excalidraw.png" alt="Excalidraw" />,
-    component: Excalidraw,
   }),
   new EmbedDescriptor({
     id: "plant-uml",

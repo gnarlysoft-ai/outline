@@ -4,6 +4,7 @@ import type Node from "@shared/editor/nodes/Node";
 import BlockMenuExtension from "~/editor/extensions/BlockMenu";
 import ClipboardTextSerializer from "~/editor/extensions/ClipboardTextSerializer";
 import DiagramsExtension from "@shared/editor/extensions/Diagrams";
+import ExcalidrawEditorExtension from "@shared/editor/extensions/ExcalidrawEditor";
 import EmojiMenuExtension from "~/editor/extensions/EmojiMenu";
 import FindAndReplaceExtension from "~/editor/extensions/FindAndReplace";
 import HoverPreviewsExtension from "~/editor/extensions/HoverPreviews";
@@ -28,6 +29,7 @@ export const withUIExtensions = (nodes: Nodes) => [
   HoverPreviewsExtension,
   SelectionToolbarExtension,
   DiagramsExtension,
+  ExcalidrawEditorExtension,
   // Order these default key handlers last
   PreventTab,
   Keys,

@@ -194,7 +194,6 @@ const insertFiles = async function (
 
           const [from, to] = result;
           const fileName = upload.file.name ?? dictionary.untitled;
-          const isExcalidraw = FileHelper.isExcalidraw(fileName);
 
           view.dispatch(
             view.state.tr
@@ -206,7 +205,6 @@ const insertFiles = async function (
                   title: fileName,
                   size: upload.file.size,
                   contentType: upload.file.type,
-                  preview: isExcalidraw,
                   ...options.attrs,
                 })
               )
