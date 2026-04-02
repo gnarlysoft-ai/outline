@@ -245,6 +245,12 @@ export default function blockMenuItems(
       attrs: { language: "mermaid" },
     },
     {
+      name: "createExcalidraw",
+      title: "Excalidraw",
+      icon: <Img src="/images/excalidraw.png" alt="Excalidraw" />,
+      keywords: "draw whiteboard diagram sketch excalidraw canvas",
+    },
+    {
       name: "editDiagram",
       title: "Diagrams.net Diagram",
       icon: <Img src="/images/diagrams.png" alt="Diagrams.net Diagram" />,
