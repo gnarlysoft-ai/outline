@@ -10,6 +10,30 @@ import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import { Construct } from "constructs";
 import type { EnvironmentConfig } from "../config";
 
+export interface SSOParameters {
+  readonly provider: string;
+  readonly googleClientId?: string;
+  readonly googleClientSecret?: string;
+  readonly azureClientId?: string;
+  readonly azureClientSecret?: string;
+  readonly azureTenantId?: string;
+  readonly oidcClientId?: string;
+  readonly oidcClientSecret?: string;
+  readonly oidcAuthUri?: string;
+  readonly oidcTokenUri?: string;
+  readonly oidcUserInfoUri?: string;
+  readonly oidcDisplayName?: string;
+}
+
+export interface SMTPParameters {
+  readonly host?: string;
+  readonly port?: string;
+  readonly username?: string;
+  readonly password?: string;
+  readonly fromEmail?: string;
+  readonly replyEmail?: string;
+}
+
 export interface ComputeProps {
   readonly config: EnvironmentConfig;
   readonly vpc: ec2.IVpc;
@@ -20,9 +44,15 @@ export interface ComputeProps {
   readonly dbSecret: secretsmanager.ISecret;
   readonly redisEndpoint: string;
   readonly appConfigSecret: secretsmanager.ISecret;
+  readonly utilsSecret: secretsmanager.ISecret;
   readonly databaseUrlSecret: secretsmanager.ISecret;
-  readonly repo: ecr.IRepository;
+  /** ECR repo for internal mode. Undefined in generic mode (image URI comes from config.containerImage). */
+  readonly repo?: ecr.IRepository;
   readonly targetGroup: elbv2.ApplicationTargetGroup;
+  /** Only supplied in generic mode — SSO credentials come from CFN parameters instead of Secrets Manager. */
+  readonly ssoParameters?: SSOParameters;
+  /** Only supplied in generic mode — SMTP credentials from CFN parameters. */
+  readonly smtpParameters?: SMTPParameters;
 }
 
 /**
@@ -36,11 +66,22 @@ export class Compute extends Construct {
     super(scope, id);
 
     const { config } = props;
+    const isGeneric = config.mode === "generic";
 
     // -- S3 Bucket for attachments ----------------------------------------
+    // Generic mode needs a globally-unique name per deployment; derive from
+    // stack name + account + region so customers don't collide with us.
+    const bucketName = isGeneric
+      ? cdk.Fn.join("-", [
+          "outline-attachments",
+          cdk.Aws.ACCOUNT_ID,
+          cdk.Aws.REGION,
+          cdk.Aws.STACK_NAME,
+        ])
+      : "gnarlysoft-outline-attachments";
 
     const attachmentsBucket = new s3.Bucket(this, "AttachmentsBucket", {
-      bucketName: "gnarlysoft-outline-attachments",
+      bucketName,
       versioned: true,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
@@ -83,39 +124,127 @@ export class Compute extends Construct {
       family: `outline-wiki-${config.envName}`,
     });
 
+    // -- Container image ---------------------------------------------------
+    // Internal mode: pull from the Gnarlysoft ECR repo passed in via props.
+    // Generic mode: pull from whatever registry the customer specified.
+    const containerImage = isGeneric
+      ? ecs.ContainerImage.fromRegistry(config.containerImage)
+      : ecs.ContainerImage.fromEcrRepository(props.repo!, "latest");
+
+    // -- Environment variables --------------------------------------------
+    const baseEnv: Record<string, string> = {
+      NODE_ENV: "production",
+      PORT: "3000",
+      URL: `https://${config.domain}`,
+      FILE_STORAGE: "s3",
+      AWS_S3_UPLOAD_BUCKET_NAME: attachmentsBucket.bucketName,
+      AWS_S3_UPLOAD_BUCKET_URL: isGeneric
+        ? `https://s3.${cdk.Aws.REGION}.amazonaws.com`
+        : `https://s3.${config.region}.amazonaws.com`,
+      AWS_S3_ACL: "private",
+      AWS_REGION: isGeneric ? cdk.Aws.REGION : config.region,
+      FORCE_HTTPS: "true",
+      PGSSLMODE: "disable",
+      REDIS_URL: `redis://${props.redisEndpoint}:6379`,
+      DB_HOST: props.dbEndpoint,
+      DB_PORT: props.dbPort,
+      DB_NAME: "outline",
+      DB_USER: "outline",
+    };
+
+    // SMTP env vars (generic mode only — internal mode expects them to be
+    // set out-of-band or in the imported secret).
+    if (isGeneric && props.smtpParameters) {
+      const smtp = props.smtpParameters;
+      if (smtp.host) {
+        baseEnv.SMTP_HOST = smtp.host;
+      }
+      if (smtp.port) {
+        baseEnv.SMTP_PORT = smtp.port;
+      }
+      if (smtp.username) {
+        baseEnv.SMTP_USERNAME = smtp.username;
+      }
+      if (smtp.password) {
+        baseEnv.SMTP_PASSWORD = smtp.password;
+      }
+      if (smtp.fromEmail) {
+        baseEnv.SMTP_FROM_EMAIL = smtp.fromEmail;
+      }
+      if (smtp.replyEmail) {
+        baseEnv.SMTP_REPLY_EMAIL = smtp.replyEmail;
+      }
+    }
+
+    // SSO env vars — internal mode pulls from Secrets Manager, generic mode
+    // takes them from CFN parameters (passed via props.ssoParameters).
+    if (!isGeneric) {
+      baseEnv.AZURE_TENANT_ID = config.azureTenantId;
+    } else if (props.ssoParameters) {
+      const sso = props.ssoParameters;
+      const provider = sso.provider;
+
+      if (provider === "Azure") {
+        if (sso.azureTenantId) {
+          baseEnv.AZURE_TENANT_ID = sso.azureTenantId;
+        }
+        if (sso.azureClientId) {
+          baseEnv.AZURE_CLIENT_ID = sso.azureClientId;
+        }
+        if (sso.azureClientSecret) {
+          baseEnv.AZURE_CLIENT_SECRET = sso.azureClientSecret;
+        }
+      } else if (provider === "Google") {
+        if (sso.googleClientId) {
+          baseEnv.GOOGLE_CLIENT_ID = sso.googleClientId;
+        }
+        if (sso.googleClientSecret) {
+          baseEnv.GOOGLE_CLIENT_SECRET = sso.googleClientSecret;
+        }
+      } else if (provider === "OIDC") {
+        if (sso.oidcClientId) {
+          baseEnv.OIDC_CLIENT_ID = sso.oidcClientId;
+        }
+        if (sso.oidcClientSecret) {
+          baseEnv.OIDC_CLIENT_SECRET = sso.oidcClientSecret;
+        }
+        if (sso.oidcAuthUri) {
+          baseEnv.OIDC_AUTH_URI = sso.oidcAuthUri;
+        }
+        if (sso.oidcTokenUri) {
+          baseEnv.OIDC_TOKEN_URI = sso.oidcTokenUri;
+        }
+        if (sso.oidcUserInfoUri) {
+          baseEnv.OIDC_USERINFO_URI = sso.oidcUserInfoUri;
+        }
+        if (sso.oidcDisplayName) {
+          baseEnv.OIDC_DISPLAY_NAME = sso.oidcDisplayName;
+        }
+      }
+    }
+
+    // -- Secrets (Secrets Manager → ECS) ----------------------------------
+    const baseSecrets: Record<string, ecs.Secret> = {
+      DB_PASSWORD: ecs.Secret.fromSecretsManager(props.dbSecret, "password"),
+      DATABASE_URL: ecs.Secret.fromSecretsManager(props.databaseUrlSecret, "DATABASE_URL"),
+      SECRET_KEY: ecs.Secret.fromSecretsManager(props.appConfigSecret, "SECRET_KEY"),
+      UTILS_SECRET: ecs.Secret.fromSecretsManager(props.utilsSecret, "UTILS_SECRET"),
+    };
+
+    if (!isGeneric) {
+      baseSecrets.AZURE_CLIENT_ID = ecs.Secret.fromSecretsManager(props.appConfigSecret, "AZURE_CLIENT_ID");
+      baseSecrets.AZURE_CLIENT_SECRET = ecs.Secret.fromSecretsManager(props.appConfigSecret, "AZURE_CLIENT_SECRET");
+    }
+
     const container = taskDef.addContainer("OutlineContainer", {
-      image: ecs.ContainerImage.fromEcrRepository(props.repo, "latest"),
+      image: containerImage,
       containerName: "outline-wiki",
       logging: ecs.LogDrivers.awsLogs({
         logGroup,
         streamPrefix: "outline",
       }),
-      environment: {
-        NODE_ENV: "production",
-        PORT: "3000",
-        URL: `https://${config.domain}`,
-        FILE_STORAGE: "s3",
-        AWS_S3_UPLOAD_BUCKET_NAME: attachmentsBucket.bucketName,
-        AWS_S3_UPLOAD_BUCKET_URL: `https://s3.${config.region}.amazonaws.com`,
-        AWS_S3_ACL: "private",
-        AWS_REGION: config.region,
-        FORCE_HTTPS: "true",
-        PGSSLMODE: "disable",
-        AZURE_TENANT_ID: config.azureTenantId,
-        REDIS_URL: `redis://${props.redisEndpoint}:6379`,
-        DB_HOST: props.dbEndpoint,
-        DB_PORT: props.dbPort,
-        DB_NAME: "outline",
-        DB_USER: "outline",
-      },
-      secrets: {
-        DB_PASSWORD: ecs.Secret.fromSecretsManager(props.dbSecret, "password"),
-        DATABASE_URL: ecs.Secret.fromSecretsManager(props.databaseUrlSecret, "DATABASE_URL"),
-        SECRET_KEY: ecs.Secret.fromSecretsManager(props.appConfigSecret, "SECRET_KEY"),
-        UTILS_SECRET: ecs.Secret.fromSecretsManager(props.appConfigSecret, "UTILS_SECRET"),
-        AZURE_CLIENT_ID: ecs.Secret.fromSecretsManager(props.appConfigSecret, "AZURE_CLIENT_ID"),
-        AZURE_CLIENT_SECRET: ecs.Secret.fromSecretsManager(props.appConfigSecret, "AZURE_CLIENT_SECRET"),
-      },
+      environment: baseEnv,
+      secrets: baseSecrets,
     });
 
     container.addPortMappings({ containerPort: 3000 });

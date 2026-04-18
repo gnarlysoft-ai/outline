@@ -53,6 +53,7 @@ export class OutlineStack extends cdk.Stack {
       dbSecret: database.dbSecret,
       redisEndpoint: database.redisEndpoint,
       appConfigSecret: secrets.appConfig,
+      utilsSecret: secrets.utilsSecret,
       databaseUrlSecret: secrets.databaseUrl,
       repo: registry.repo,
       targetGroup: networking.appTargetGroup,

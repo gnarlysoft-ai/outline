@@ -165,6 +165,27 @@ jobs:
           TESTFILES=$(find . -name "*.test.ts" -path "*/server/*" | sort | awk "NR % 4 == (${{ matrix.shard }} - 1)")
           yarn test --maxWorkers=2 $TESTFILES
 
+  infra-synth:
+    name: Infra — synth generic CFN
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22.x
+      - name: Install infra deps
+        working-directory: infra
+        run: npm install
+      - name: Synth generic CloudFormation
+        working-directory: infra
+        run: npx cdk --app "npx ts-node bin/cfn-synth.ts" synth Outline > /tmp/outline.yml
+      - name: Diff against committed cfn/outline.yml
+        run: |
+          if ! diff -u cfn/outline.yml /tmp/outline.yml; then
+            echo "::error::cfn/outline.yml is out of date. Run 'cd infra && npm run synth:cfn' and commit the result."
+            exit 1
+          fi
+
   bundle-size:
     needs: [setup, types, changes]
     if: ${{ (needs.changes.outputs.app == 'true' || needs.changes.outputs.config == 'true') && github.repository == 'outline/outline' }}

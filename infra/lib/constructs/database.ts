@@ -71,7 +71,13 @@ export class Database extends Construct {
       multiAz: false,
       allocatedStorage: config.dbStorageGb,
       storageType: rds.StorageType.GP3,
-      maxAllocatedStorage: config.dbStorageGb * 2,
+      // Auto-scaling storage doubles the initial allocation in internal mode.
+      // In generic mode `dbStorageGb` is a CFN token — multiplying yields
+      // junk at synth time, so we skip auto-scaling and let customers size
+      // up via a stack update if they need more.
+      ...(config.mode === "internal"
+        ? { maxAllocatedStorage: config.dbStorageGb * 2 }
+        : {}),
 
       instanceIdentifier: `outline-db-${config.envName}`,
       removalPolicy: cdk.RemovalPolicy.SNAPSHOT,

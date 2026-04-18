@@ -1,110 +1,132 @@
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./public/logos/outline-logo-dark.png" height="29">
-    <source media="(prefers-color-scheme: light)" srcset="./public/logos/outline-logo-light.png" height="29">
-    <img src="./public/logos/outline-logo-light.png" height="29" alt="Outline" />
-  </picture>
-</p>
-<p align="center">
-  <i>A fast, collaborative, knowledge base for your team built using React and Node.js.<br/>Try out Outline using our hosted version at <a href="https://www.getoutline.com">www.getoutline.com</a>.</i>
-  <br/>
-  <img width="1640" alt="screenshot" src="https://user-images.githubusercontent.com/380914/110356468-26374600-7fef-11eb-9f6a-f2cc2c8c6590.png">
-</p>
-<p align="center">
-  <a href="http://www.typescriptlang.org" rel="nofollow"><img src="https://img.shields.io/badge/%3C%2F%3E-TypeScript-%230074c1.svg" alt="TypeScript"></a>
-  <a href="https://github.com/prettier/prettier"><img src="https://img.shields.io/badge/code_style-prettier-ff69b4.svg?style=flat" alt="Prettier"></a>
-  <a href="https://github.com/styled-components/styled-components"><img src="https://img.shields.io/badge/style-%F0%9F%92%85%20styled--components-orange.svg" alt="Styled Components"></a>
-  <a href="https://translate.getoutline.com/project/outline" alt="Localized"><img src="https://badges.crowdin.net/outline/localized.svg"></a>
-</p>
+# Gnarlysoft Outline Fork
 
-This is the source code that runs [**Outline**](https://www.getoutline.com) and all the associated services. If you want to use Outline then you don't need to run this code, A hosted version of the app is offered at [getoutline.com](https://www.getoutline.com). You can also find documentation on using Outline in [our guide](https://docs.getoutline.com/s/guide).
+A fork of [Outline](https://github.com/outline/outline) packaged for one-shot
+deployment to AWS, with a few opinionated additions on top of upstream:
 
-If you'd like to run your own copy of Outline or contribute to development then this is the place for you.
+- **First-class Excalidraw editor** — draw diagrams inline, no external hosting
+- **Azure / Microsoft 365 SSO** — configured via CloudFormation parameters
+- **AWS CDK + CloudFormation infra** — ECS Fargate, RDS Postgres, ElastiCache
+  Redis, S3, ALB, ACM, Route 53
 
-# Installation
+This is a community fork. It is distributed free under the
+[Business Source License 1.1](LICENSE) and is **not a commercial product**.
+See [NOTICE](NOTICE) for the list of modifications and the license terms that
+apply to downstream use.
 
-Please see the [documentation](https://docs.getoutline.com/s/hosting/) for running your own copy of Outline in a production configuration.
+> Upstream Outline is an independent product from General Outline, Inc. For
+> Outline's hosted SaaS, user documentation, or commercial support, visit
+> [getoutline.com](https://www.getoutline.com). This repository is not
+> affiliated with, endorsed by, or sponsored by General Outline.
 
-If you have questions or improvements for the docs please create a thread in [GitHub discussions](https://github.com/outline/outline/discussions).
+---
 
-# Development
+## Deploy to AWS
 
-There is a short guide for [setting up a development environment](https://docs.getoutline.com/s/hosting/doc/local-development-5hEhFRXow7) if you wish to contribute changes, fixes, and improvements to Outline.
+Customers deploy Outline into their own AWS account using the included
+CloudFormation template. No third-party service is involved — you own the
+infrastructure, the data, and the domain end-to-end.
 
-## Contributing
+### Easy mode — let Claude Code do it
 
-Outline is built and maintained by a small team – your help finding and fixing bugs is appreciated, though AI assisted PR's from new contributors are discouraged and unlikely to be merged.
+If you have [Claude Code](https://claude.com/claude-code) installed, this repo
+ships a skill at `.claude/skills/deploy-to-aws/` that walks you through the
+full deploy. Fork or clone the repo, `cd` into it, open Claude Code, and run:
 
-Before submitting a pull request _you must_ discuss with the core team by creating or commenting in an issue on [GitHub](https://www.github.com/outline/outline/issues) – we'd also love to hear from you in the [discussions](https://www.github.com/outline/outline/discussions). This way we can ensure that an approach is agreed on before code is written and that you have read these instructions. This will result in a much higher likelihood of your code being accepted.
+> **`Use the deploy-to-aws skill to help me deploy this to my AWS account.`**
 
-If you’re looking for ways to get started, here's a list of ways to help us improve Outline:
+Claude will interview you for the required values (domain, Route 53 hosted
+zone, SSO choice, sizing), check your AWS CLI setup and IAM permissions,
+build and push the container image to your ECR, and run CloudFormation
+end-to-end. The interview confirms every parameter before spending money.
 
-- [Translation](docs/TRANSLATION.md) into other languages
-- Issues with [`good first issue`](https://github.com/outline/outline/labels/good%20first%20issue) label
-- Performance improvements, both on server and frontend
-- Developer happiness and documentation
-- Bugs and other issues listed on GitHub
+### Manual mode
 
-## Architecture
+1. Fork or clone this repo.
+2. See [docs/deploy.md](docs/deploy.md) for prerequisites and step-by-step
+   CloudFormation deployment.
+3. For SSO configuration, see:
+   - [docs/sso-google.md](docs/sso-google.md)
+   - [docs/sso-azure.md](docs/sso-azure.md)
+   - [docs/sso-oidc.md](docs/sso-oidc.md)
 
-If you're interested in contributing or learning more about the Outline codebase
-please refer to the [architecture document](docs/ARCHITECTURE.md) first for a high level overview of how the application is put together.
+Email magic-link sign-in works out of the box once SMTP is configured — no
+SSO provider is strictly required.
 
-## Debugging
+---
 
-In development Outline outputs simple logging to the console, prefixed by categories. In production it outputs JSON logs, these can be easily parsed by your preferred log ingestion pipeline.
+## License
 
-HTTP logging is disabled by default, but can be enabled by setting the `DEBUG=http` environment variable. logging
-can be enabled for all categories by setting `DEBUG=*` or for specific categories such as `DEBUG=database` and `LOG_LEVEL=debug`, or `LOG_LEVEL=silly` for very verbose logging.
+This fork is licensed under the [Business Source License 1.1](LICENSE),
+inherited from upstream Outline. Key points:
 
-## Tests
+- You may deploy this fork for your own team's production use.
+- You may **not** offer it as a hosted "Document Service" to third parties
+  (including any paid SaaS / AWS Marketplace listing) without first obtaining
+  a commercial license from General Outline, Inc.
+- On 2030-03-18 the license converts automatically to Apache 2.0.
 
-We aim to have sufficient test coverage for critical parts of the application and aren't aiming for 100% unit test coverage. All API endpoints and anything authentication related should be thoroughly tested.
+Read the full terms in [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
-To add new tests, write your tests with [Jest](https://facebook.github.io/jest/) and add a file with `.test.ts` extension next to the tested code.
+---
 
-```shell
-# To run all tests
-make test
+## Development
 
-# To run backend tests in watch mode
-make watch
+Setup and contribution docs follow upstream Outline conventions. See
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for an architectural overview
+of the core application.
+
+Backend / frontend / shared code is organized under `server/`, `app/`,
+`shared/`. Deployment infrastructure lives in `infra/` (AWS CDK) and
+`cfn/` (generated CloudFormation).
+
+```bash
+yarn install
+yarn dev:watch   # backend + Vite dev server
+yarn tsc         # type check
+yarn lint        # oxlint
+yarn test path/to/file.test.ts
 ```
 
-Once the test database is created with `make test` you may individually run
-frontend and backend tests directly with jest:
+### Tests
 
-```shell
-# To run backend tests
+Test files live next to the code they cover as `*.test.ts`. Jest runs them.
+
+```bash
+# Run a specific test (preferred)
+yarn test path/to/file.test.ts
+
+# Backend / frontend / shared suites
 yarn test:server
-
-# To run a specific backend test in watch mode
-yarn test path/to/file.test.ts --watch
-
-# To run frontend tests
 yarn test:app
+yarn test:shared
 ```
 
-## Migrations
+### Migrations
 
-Sequelize is used to create and run migrations, for example:
+Outline uses Sequelize migrations. Upstream may add new migrations on every
+sync; run them after pulling.
 
-```shell
+```bash
 yarn db:create-migration --name my-migration
 yarn db:migrate
 yarn db:rollback
-```
 
-Or, to run migrations on test database:
-
-```shell
+# Migrations against the test database
 yarn db:migrate --env test
 ```
 
-# Activity
+In production the server process runs pending migrations automatically on
+boot (`server/utils/startup.ts → checkPendingMigrations`). Pass
+`--no-migrate` to disable this and run them manually.
 
-![Alt](https://repobeats.axiom.co/api/embed/ff2e4e6918afff1acf9deb72d1ba6b071d586178.svg "Repobeats analytics image")
+---
 
-# License
+## Upstream
 
-Outline is [BSL 1.1 licensed](LICENSE).
+This fork tracks [outline/outline](https://github.com/outline/outline) on the
+`main` branch. Bug reports and feature requests that are not specific to our
+modifications should go to the upstream project.
+
+## Activity
+
+![Repo analytics](https://repobeats.axiom.co/api/embed/ff2e4e6918afff1acf9deb72d1ba6b071d586178.svg "Repobeats analytics image")

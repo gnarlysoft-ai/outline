@@ -1,0 +1,36 @@
+This product includes modifications to Outline
+(https://github.com/outline/outline), originally created by
+General Outline, Inc. and licensed under the Business Source
+License 1.1. The full BSL 1.1 text is preserved in the LICENSE
+file in this repository.
+
+Modifications made by Gnarlysoft (2026):
+
+- First-class Excalidraw editor
+    shared/editor/nodes/Excalidraw.tsx
+    shared/editor/extensions/ExcalidrawEditor.tsx
+    shared/editor/components/ExcalidrawNodeView.tsx
+    shared/editor/components/ExcalidrawEditorOverlay.tsx
+    shared/editor/rules/excalidraw.ts
+    app/editor/menus/block.tsx
+
+- M365 / Azure SSO enhancements
+    plugins/azure/server/auth/azure.ts
+
+- AWS CDK + CloudFormation deployment templates
+    infra/
+    cfn/outline.yml
+    Dockerfile.production
+    .github/workflows/deploy.yml
+
+This fork is distributed at no charge under the terms of the
+BSL 1.1 Additional Use Grant. You may deploy it to run for your
+own team. You may not use this fork or any derivative as the
+basis of a commercial offering ("Document Service" as defined
+in the license) without obtaining a commercial license from
+General Outline, Inc.
+
+"Outline" is a trademark of General Outline, Inc. Gnarlysoft
+is not affiliated with, endorsed by, or sponsored by General
+Outline. References to Outline in this repository are
+descriptive (nominative fair use) only.

@@ -1,5 +1,8 @@
 node_modules/
 cdk.out/
+cdk.out.generic/
+cdk.context.json
+package-lock.json
 *.js
 *.d.ts
 !jest.config.js

@@ -7,7 +7,8 @@
     "synth": "cdk synth",
     "deploy": "cdk deploy",
     "diff": "cdk diff",
-    "destroy": "cdk destroy"
+    "destroy": "cdk destroy",
+    "synth:cfn": "cdk --app \"npx ts-node bin/cfn-synth.ts\" --output cdk.out.generic synth Outline > ../cfn/outline.yml"
   },
   "dependencies": {
     "aws-cdk-lib": "^2.200.0",
@@ -16,6 +17,7 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "aws-cdk": "^2.200.0",
+    "ts-node": "^10.9.2",
     "typescript": "^5.7.0"
   }
 }

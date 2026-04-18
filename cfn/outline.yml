@@ -1,0 +1,1270 @@
+Description: Outline knowledge base (Gnarlysoft fork) — ECS Fargate + RDS Postgres + ElastiCache Redis.
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Environment
+        Parameters:
+          - EnvName
+      - Label:
+          default: Networking & DNS
+        Parameters:
+          - VpcId
+          - SubnetIds
+          - Domain
+          - HostedZoneId
+      - Label:
+          default: Application image
+        Parameters:
+          - ContainerImage
+      - Label:
+          default: Email (SMTP) — required for magic-link sign-in + invitations
+        Parameters:
+          - SmtpHost
+          - SmtpPort
+          - SmtpUsername
+          - SmtpPassword
+          - SmtpFromEmail
+          - SmtpReplyEmail
+      - Label:
+          default: SSO (choose one provider, leave the rest blank)
+        Parameters:
+          - SSOProvider
+          - GoogleClientId
+          - GoogleClientSecret
+          - AzureClientId
+          - AzureClientSecret
+          - AzureTenantId
+          - OIDCClientId
+          - OIDCClientSecret
+          - OIDCAuthUri
+          - OIDCTokenUri
+          - OIDCUserInfoUri
+          - OIDCDisplayName
+      - Label:
+          default: Sizing
+        Parameters:
+          - DbInstanceClass
+          - DbStorageGb
+          - FargateCpu
+          - FargateMemory
+          - DesiredCount
+Parameters:
+  EnvName:
+    Type: String
+    Default: prod
+    AllowedPattern: ^[a-z][a-z0-9]{0,15}$
+    Description: Environment name used in resource naming (e.g. 'prod', 'staging').
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC to deploy Outline into. Must have at least two public subnets in different AZs.
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Public subnet IDs in the selected VPC (at least 2 in different AZs).
+  Domain:
+    Type: String
+    AllowedPattern: ^[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)+$
+    Description: Fully-qualified hostname for Outline (e.g. 'wiki.example.com'). Must be a subdomain of an existing Route 53 hosted zone.
+  HostedZoneId:
+    Type: AWS::Route53::HostedZone::Id
+    Description: Route 53 hosted zone that will own the DNS record for Domain.
+  ContainerImage:
+    Type: String
+    Description: Full container image URI (e.g. ghcr.io/gnarlysoft-ai/outline:latest or <account>.dkr.ecr.<region>.amazonaws.com/outline:latest).
+  SSOProvider:
+    Type: String
+    Default: None
+    AllowedValues:
+      - None
+      - Google
+      - Azure
+      - OIDC
+    Description: SSO provider. 'None' = email magic-link only (requires SMTP env vars).
+  GoogleClientId:
+    Type: String
+    Default: ""
+    Description: Google OAuth client ID. Required if SSOProvider = Google.
+  GoogleClientSecret:
+    Type: String
+    Default: ""
+    Description: Google OAuth client secret. Required if SSOProvider = Google.
+    NoEcho: true
+  AzureClientId:
+    Type: String
+    Default: ""
+    Description: Azure/Entra application (client) ID. Required if SSOProvider = Azure.
+  AzureClientSecret:
+    Type: String
+    Default: ""
+    Description: Azure/Entra client secret. Required if SSOProvider = Azure.
+    NoEcho: true
+  AzureTenantId:
+    Type: String
+    Default: ""
+    Description: Azure/Entra directory (tenant) ID. Required if SSOProvider = Azure.
+  OIDCClientId:
+    Type: String
+    Default: ""
+    Description: Generic OIDC client ID. Required if SSOProvider = OIDC.
+  OIDCClientSecret:
+    Type: String
+    Default: ""
+    Description: Generic OIDC client secret. Required if SSOProvider = OIDC.
+    NoEcho: true
+  OIDCAuthUri:
+    Type: String
+    Default: ""
+    Description: OIDC authorize endpoint URL.
+  OIDCTokenUri:
+    Type: String
+    Default: ""
+    Description: OIDC token endpoint URL.
+  OIDCUserInfoUri:
+    Type: String
+    Default: ""
+    Description: OIDC userinfo endpoint URL.
+  OIDCDisplayName:
+    Type: String
+    Default: SSO
+    Description: Display name shown on the OIDC sign-in button.
+  SmtpHost:
+    Type: String
+    Default: ""
+    Description: "SMTP server hostname. For AWS SES: email-smtp.<region>.amazonaws.com. Leave blank to disable email."
+  SmtpPort:
+    Type: String
+    Default: "587"
+    Description: SMTP port. 587 (STARTTLS) is the common default; 465 for TLS.
+  SmtpUsername:
+    Type: String
+    Default: ""
+    Description: "SMTP username. For SES: the SMTP credential access key (not your IAM user's AKIA)."
+  SmtpPassword:
+    Type: String
+    Default: ""
+    Description: "SMTP password. For SES: the SMTP credential secret derived via smtp-password-v4 signing."
+    NoEcho: true
+  SmtpFromEmail:
+    Type: String
+    Default: ""
+    Description: The 'From' address used by Outline emails. Must be a verified sender at your SMTP provider.
+  SmtpReplyEmail:
+    Type: String
+    Default: ""
+    Description: The 'Reply-To' address. Often the same as SmtpFromEmail.
+  DbInstanceClass:
+    Type: String
+    Default: t4g.small
+    Description: RDS instance class (e.g. t4g.micro, t4g.small, m7g.large).
+  DbStorageGb:
+    Type: Number
+    Default: 50
+    Description: RDS storage in GB. Will auto-scale up to 2x this value.
+    MinValue: 20
+  FargateCpu:
+    Type: Number
+    Default: 1024
+    AllowedValues:
+      - "256"
+      - "512"
+      - "1024"
+      - "2048"
+      - "4096"
+    Description: Fargate task CPU in milli-vCPU (1024 = 1 vCPU).
+  FargateMemory:
+    Type: Number
+    Default: 2048
+    Description: Fargate task memory in MiB. Must be compatible with chosen CPU.
+  DesiredCount:
+    Type: Number
+    Default: 2
+    Description: Number of ECS tasks to run.
+    MinValue: 1
+Resources:
+  NetworkingAlbSgEC40B0D9:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Outline ALB - HTTP/HTTPS from internet
+      GroupName:
+        Fn::Join:
+          - ""
+          - - outline-alb-
+            - Ref: EnvName
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic by default
+          IpProtocol: "-1"
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          Description: HTTP from anywhere
+          FromPort: 80
+          IpProtocol: tcp
+          ToPort: 80
+        - CidrIp: 0.0.0.0/0
+          Description: HTTPS from anywhere
+          FromPort: 443
+          IpProtocol: tcp
+          ToPort: 443
+      Tags:
+        - Key: environment
+          Value:
+            Ref: EnvName
+        - Key: project
+          Value: outline
+      VpcId:
+        Ref: VpcId
+    Metadata:
+      aws:cdk:path: Outline/Networking/AlbSg/Resource
+  NetworkingAppSg7FDCB0B9:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Outline ECS service - traffic from ALB only
+      GroupName:
+        Fn::Join:
+          - ""
+          - - outline-app-
+            - Ref: EnvName
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic by default
+          IpProtocol: "-1"
+      Tags:
+        - Key: environment
+          Value:
+            Ref: EnvName
+        - Key: project
+          Value: outline
+      VpcId:
+        Ref: VpcId
+    Metadata:
+      aws:cdk:path: Outline/Networking/AppSg/Resource
+  NetworkingAppSgfromOutlineNetworkingAlbSg1ABCDA8730004E411AA4:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: Outline app from ALB
+      FromPort: 3000
+      GroupId:
+        Fn::GetAtt:
+          - NetworkingAppSg7FDCB0B9
+          - GroupId
+      IpProtocol: tcp
+      SourceSecurityGroupId:
+        Fn::GetAtt:
+          - NetworkingAlbSgEC40B0D9
+          - GroupId
+      ToPort: 3000
+    Metadata:
+      aws:cdk:path: Outline/Networking/AppSg/from OutlineNetworkingAlbSg1ABCDA87:3000
+  NetworkingDbSg37EB0EE1:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Outline RDS - access from ECS service
+      GroupName:
+        Fn::Join:
+          - ""
+          - - outline-db-
+            - Ref: EnvName
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic by default
+          IpProtocol: "-1"
+      Tags:
+        - Key: environment
+          Value:
+            Ref: EnvName
+        - Key: project
+          Value: outline
+      VpcId:
+        Ref: VpcId
+    Metadata:
+      aws:cdk:path: Outline/Networking/DbSg/Resource
+  NetworkingDbSgfromOutlineNetworkingAppSg1EA7CD605432662448C4:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: PostgreSQL from ECS service
+      FromPort: 5432
+      GroupId:
+        Fn::GetAtt:
+          - NetworkingDbSg37EB0EE1
+          - GroupId
+      IpProtocol: tcp
+      SourceSecurityGroupId:
+        Fn::GetAtt:
+          - NetworkingAppSg7FDCB0B9
+          - GroupId
+      ToPort: 5432
+    Metadata:
+      aws:cdk:path: Outline/Networking/DbSg/from OutlineNetworkingAppSg1EA7CD60:5432
+  NetworkingRedisSg7D1AD7E5:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Outline Redis - access from ECS service
+      GroupName:
+        Fn::Join:
+          - ""
+          - - outline-redis-
+            - Ref: EnvName
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic by default
+          IpProtocol: "-1"
+      Tags:
+        - Key: environment
+          Value:
+            Ref: EnvName
+        - Key: project
+          Value: outline
+      VpcId:
+        Ref: VpcId
+    Metadata:
+      aws:cdk:path: Outline/Networking/RedisSg/Resource
+  NetworkingRedisSgfromOutlineNetworkingAppSg1EA7CD606379FE0FF0E4:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: Redis from ECS service
+      FromPort: 6379
+      GroupId:
+        Fn::GetAtt:
+          - NetworkingRedisSg7D1AD7E5
+          - GroupId
+      IpProtocol: tcp
+      SourceSecurityGroupId:
+        Fn::GetAtt:
+          - NetworkingAppSg7FDCB0B9
+          - GroupId
+      ToPort: 6379
+    Metadata:
+      aws:cdk:path: Outline/Networking/RedisSg/from OutlineNetworkingAppSg1EA7CD60:6379
+  NetworkingAlb1EC41264:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      LoadBalancerAttributes:
+        - Key: deletion_protection.enabled
+          Value: "false"
+      Name:
+        Fn::Join:
+          - ""
+          - - outline-
+            - Ref: EnvName
+      Scheme: internet-facing
+      SecurityGroups:
+        - Fn::GetAtt:
+            - NetworkingAlbSgEC40B0D9
+            - GroupId
+      Subnets:
+        Ref: SubnetIds
+      Tags:
+        - Key: environment
+          Value:
+            Ref: EnvName
+        - Key: project
+          Value: outline
+      Type: application
+    Metadata:
+      aws:cdk:path: Outline/Networking/Alb/Resource
+  NetworkingAlbHttpListenerDDEBD142:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - RedirectConfig:
+            Port: "443"
+            Protocol: HTTPS
+            StatusCode: HTTP_301
+          Type: redirect
+      LoadBalancerArn:
+        Ref: NetworkingAlb1EC41264
+      Port: 80
+      Protocol: HTTP
+    Metadata:
+      aws:cdk:path: Outline/Networking/Alb/HttpListener/Resource
+  NetworkingAlbHttpsListener491E99FD:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      Certificates:
+        - CertificateArn:
+            Ref: NetworkingCert367F9A6E
+      DefaultActions:
+        - TargetGroupArn:
+            Ref: NetworkingAppTgEA72E7D9
+          Type: forward
+      LoadBalancerArn:
+        Ref: NetworkingAlb1EC41264
+      Port: 443
+      Protocol: HTTPS
+    Metadata:
+      aws:cdk:path: Outline/Networking/Alb/HttpsListener/Resource
+  NetworkingAppTgEA72E7D9:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: /_health
+      HealthyThresholdCount: 2
+      Name:
+        Fn::Join:
+          - ""
+          - - outline-app-
+            - Ref: EnvName
+      Port: 3000
+      Protocol: HTTP
+      Tags:
+        - Key: environment
+          Value:
+            Ref: EnvName
+        - Key: project
+          Value: outline
+      TargetGroupAttributes:
+        - Key: stickiness.enabled
+          Value: "false"
+      TargetType: ip
+      UnhealthyThresholdCount: 3
+      VpcId:
+        Ref: VpcId
+    Metadata:
+      aws:cdk:path: Outline/Networking/AppTg/Resource
+  NetworkingCert367F9A6E:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName:
+        Ref: Domain
+      DomainValidationOptions:
+        - DomainName:
+            Ref: Domain
+          HostedZoneId:
+            Ref: HostedZoneId
+      Tags:
+        - Key: environment
+          Value:
+            Ref: EnvName
+        - Key: Name
+          Value: Outline/Networking/Cert
+        - Key: project
+          Value: outline
+      ValidationMethod: DNS
+    Metadata:
+      aws:cdk:path: Outline/Networking/Cert/Resource
+  NetworkingAliasRecord0A0BFAAC:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      AliasTarget:
+        DNSName:
+          Fn::Join:
+            - ""
+            - - dualstack.
+              - Fn::GetAtt:
+                  - NetworkingAlb1EC41264
+                  - DNSName
+        HostedZoneId:
+          Fn::GetAtt:
+            - NetworkingAlb1EC41264
+            - CanonicalHostedZoneID
+      HostedZoneId:
+        Ref: HostedZoneId
+      Name:
+        Fn::Join:
+          - ""
+          - - Ref: Domain
+            - "."
+      Type: A
+    Metadata:
+      aws:cdk:path: Outline/Networking/AliasRecord/Resource
+  DatabaseDbSubnetGroupD28E49B1:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Outline RDS subnet group
+      DBSubnetGroupName:
+        Fn::Join:
+          - ""
+          - - outline-db-
+            - Ref: EnvName
+      SubnetIds:
+        Ref: SubnetIds
+      Tags:
+        - Key: environment
+          Value:
+            Ref: EnvName
+        - Key: project
+          Value: outline
+    Metadata:
+      aws:cdk:path: Outline/Database/DbSubnetGroup/Default
+  DatabaseParamGroupAA5F4DA7:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: Outline PostgreSQL 16 params
+      Family: postgres16
+      Parameters:
+        rds.force_ssl: "0"
+      Tags:
+        - Key: environment
+          Value:
+            Ref: EnvName
+        - Key: project
+          Value: outline
+    Metadata:
+      aws:cdk:path: Outline/Database/ParamGroup/Resource
+  OutlineDatabaseInstanceSecret814099803fdaad7efa858a3daf9490cf0a702aeb:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description:
+        Fn::Join:
+          - ""
+          - - "Generated by the CDK for stack: "
+            - Ref: AWS::StackName
+      GenerateSecretString:
+        ExcludeCharacters: " %+~`#$&*()|[]{}:;<>?!'/@\"\\"
+        GenerateStringKey: password
+        PasswordLength: 30
+        SecretStringTemplate: '{"username":"outline"}'
+      Name:
+        Fn::Join:
+          - ""
+          - - outline/
+            - Ref: EnvName
+            - /db-credentials
+      Tags:
+        - Key: environment
+          Value:
+            Ref: EnvName
+        - Key: project
+          Value: outline
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+    Metadata:
+      aws:cdk:path: Outline/Database/Instance/Secret/Resource
+  DatabaseInstanceSecretAttachmentFCA06D38:
+    Type: AWS::SecretsManager::SecretTargetAttachment
+    Properties:
+      SecretId:
+        Ref: OutlineDatabaseInstanceSecret814099803fdaad7efa858a3daf9490cf0a702aeb
+      TargetId:
+        Ref: DatabaseInstanceAA8A5FDE
+      TargetType: AWS::RDS::DBInstance
+    Metadata:
+      aws:cdk:path: Outline/Database/Instance/Secret/Attachment/Resource
+  DatabaseInstanceAA8A5FDE:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      AllocatedStorage:
+        Ref: DbStorageGb
+      BackupRetentionPeriod: 3
+      CopyTagsToSnapshot: true
+      DBInstanceClass:
+        Fn::Join:
+          - ""
+          - - db.
+            - Ref: DbInstanceClass
+      DBInstanceIdentifier:
+        Fn::Join:
+          - ""
+          - - outline-db-
+            - Ref: EnvName
+      DBName: outline
+      DBParameterGroupName:
+        Ref: DatabaseParamGroupAA5F4DA7
+      DBSubnetGroupName:
+        Ref: DatabaseDbSubnetGroupD28E49B1
+      DeletionProtection: false
+      Engine: postgres
+      EngineVersion: "16"
+      MasterUserPassword:
+        Fn::Join:
+          - ""
+          - - "{{resolve:secretsmanager:"
+            - Ref: OutlineDatabaseInstanceSecret814099803fdaad7efa858a3daf9490cf0a702aeb
+            - :SecretString:password::}}
+      MasterUsername: outline
+      MultiAZ: false
+      PreferredBackupWindow: 03:00-04:00
+      PreferredMaintenanceWindow: sun:04:00-sun:05:00
+      PubliclyAccessible: true
+      StorageType: gp3
+      Tags:
+        - Key: environment
+          Value:
+            Ref: EnvName
+        - Key: project
+          Value: outline
+      VPCSecurityGroups:
+        - Fn::GetAtt:
+            - NetworkingDbSg37EB0EE1
+            - GroupId
+    UpdateReplacePolicy: Snapshot
+    DeletionPolicy: Snapshot
+    Metadata:
+      aws:cdk:path: Outline/Database/Instance/Resource
+  DatabaseRedisSubnetGroupF2625522:
+    Type: AWS::ElastiCache::SubnetGroup
+    Properties:
+      CacheSubnetGroupName:
+        Fn::Join:
+          - ""
+          - - outline-redis-
+            - Ref: EnvName
+      Description: Outline Redis subnet group
+      SubnetIds:
+        Ref: SubnetIds
+      Tags:
+        - Key: environment
+          Value:
+            Ref: EnvName
+        - Key: project
+          Value: outline
+    Metadata:
+      aws:cdk:path: Outline/Database/RedisSubnetGroup
+  DatabaseRedisClusterCA8F776A:
+    Type: AWS::ElastiCache::CacheCluster
+    Properties:
+      CacheNodeType: cache.t4g.micro
+      CacheSubnetGroupName:
+        Fn::Join:
+          - ""
+          - - outline-redis-
+            - Ref: EnvName
+      ClusterName:
+        Fn::Join:
+          - ""
+          - - outline-redis-
+            - Ref: EnvName
+      Engine: redis
+      EngineVersion: "7.1"
+      NumCacheNodes: 1
+      Tags:
+        - Key: environment
+          Value:
+            Ref: EnvName
+        - Key: project
+          Value: outline
+      VpcSecurityGroupIds:
+        - Fn::GetAtt:
+            - NetworkingRedisSg7D1AD7E5
+            - GroupId
+    DependsOn:
+      - DatabaseRedisSubnetGroupF2625522
+    Metadata:
+      aws:cdk:path: Outline/Database/RedisCluster
+  SecretsAppConfig1DE8CB45:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: Outline SECRET_KEY (auto-generated)
+      GenerateSecretString:
+        ExcludePunctuation: true
+        GenerateStringKey: SECRET_KEY
+        PasswordLength: 64
+        SecretStringTemplate: "{}"
+      Name:
+        Fn::Join:
+          - ""
+          - - outline/
+            - Ref: EnvName
+            - /secret-key
+      Tags:
+        - Key: environment
+          Value:
+            Ref: EnvName
+        - Key: project
+          Value: outline
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+    Metadata:
+      aws:cdk:path: Outline/Secrets/AppConfig/Resource
+  SecretsUtilsSecret22A6EA10:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: Outline UTILS_SECRET (auto-generated)
+      GenerateSecretString:
+        ExcludePunctuation: true
+        GenerateStringKey: UTILS_SECRET
+        PasswordLength: 64
+        SecretStringTemplate: "{}"
+      Name:
+        Fn::Join:
+          - ""
+          - - outline/
+            - Ref: EnvName
+            - /utils-secret
+      Tags:
+        - Key: environment
+          Value:
+            Ref: EnvName
+        - Key: project
+          Value: outline
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+    Metadata:
+      aws:cdk:path: Outline/Secrets/UtilsSecret/Resource
+  SecretsDatabaseUrlE7453004:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: Outline DATABASE_URL (unused; DB_* env vars are used instead)
+      Name:
+        Fn::Join:
+          - ""
+          - - outline/
+            - Ref: EnvName
+            - /database-url
+      SecretString: postgres://placeholder
+      Tags:
+        - Key: environment
+          Value:
+            Ref: EnvName
+        - Key: project
+          Value: outline
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+    Metadata:
+      aws:cdk:path: Outline/Secrets/DatabaseUrl/Resource
+  ComputeAttachmentsBucketCAE07D70:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName:
+        Fn::Join:
+          - "-"
+          - - outline-attachments
+            - Ref: AWS::AccountId
+            - Ref: AWS::Region
+            - Ref: AWS::StackName
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - "*"
+            AllowedMethods:
+              - GET
+              - PUT
+              - POST
+              - DELETE
+            AllowedOrigins:
+              - Fn::Join:
+                  - ""
+                  - - https://
+                    - Ref: Domain
+            MaxAge: 3600
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: environment
+          Value:
+            Ref: EnvName
+        - Key: project
+          Value: outline
+      VersioningConfiguration:
+        Status: Enabled
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+    Metadata:
+      aws:cdk:path: Outline/Compute/AttachmentsBucket/Resource
+  ComputeCluster4F8E5F81:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName:
+        Fn::Join:
+          - ""
+          - - outline-
+            - Ref: EnvName
+      Tags:
+        - Key: environment
+          Value:
+            Ref: EnvName
+        - Key: project
+          Value: outline
+    Metadata:
+      aws:cdk:path: Outline/Compute/Cluster/Resource
+  ComputeCluster64C33C01:
+    Type: AWS::ECS::ClusterCapacityProviderAssociations
+    Properties:
+      CapacityProviders:
+        - FARGATE
+        - FARGATE_SPOT
+      Cluster:
+        Ref: ComputeCluster4F8E5F81
+      DefaultCapacityProviderStrategy: []
+    Metadata:
+      aws:cdk:path: Outline/Compute/Cluster/Cluster
+  ComputeLogGroup1A40385B:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Join:
+          - ""
+          - - /outline/
+            - Ref: EnvName
+      RetentionInDays: 14
+      Tags:
+        - Key: environment
+          Value:
+            Ref: EnvName
+        - Key: project
+          Value: outline
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+    Metadata:
+      aws:cdk:path: Outline/Compute/LogGroup/Resource
+  ComputeTaskDefTaskRole10B1918B:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+        Version: "2012-10-17"
+      Tags:
+        - Key: environment
+          Value:
+            Ref: EnvName
+        - Key: project
+          Value: outline
+    Metadata:
+      aws:cdk:path: Outline/Compute/TaskDef/TaskRole/Resource
+  ComputeTaskDefTaskRoleDefaultPolicy70556C7B:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action:
+              - s3:GetObject*
+              - s3:GetBucket*
+              - s3:List*
+              - s3:DeleteObject*
+              - s3:PutObject
+              - s3:PutObjectLegalHold
+              - s3:PutObjectRetention
+              - s3:PutObjectTagging
+              - s3:PutObjectVersionTagging
+              - s3:Abort*
+            Effect: Allow
+            Resource:
+              - Fn::GetAtt:
+                  - ComputeAttachmentsBucketCAE07D70
+                  - Arn
+              - Fn::Join:
+                  - ""
+                  - - Fn::GetAtt:
+                        - ComputeAttachmentsBucketCAE07D70
+                        - Arn
+                    - /*
+        Version: "2012-10-17"
+      PolicyName: ComputeTaskDefTaskRoleDefaultPolicy70556C7B
+      Roles:
+        - Ref: ComputeTaskDefTaskRole10B1918B
+    Metadata:
+      aws:cdk:path: Outline/Compute/TaskDef/TaskRole/DefaultPolicy/Resource
+  ComputeTaskDefBA99999B:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      ContainerDefinitions:
+        - Environment:
+            - Name: NODE_ENV
+              Value: production
+            - Name: PORT
+              Value: "3000"
+            - Name: URL
+              Value:
+                Fn::Join:
+                  - ""
+                  - - https://
+                    - Ref: Domain
+            - Name: FILE_STORAGE
+              Value: s3
+            - Name: AWS_S3_UPLOAD_BUCKET_NAME
+              Value:
+                Ref: ComputeAttachmentsBucketCAE07D70
+            - Name: AWS_S3_UPLOAD_BUCKET_URL
+              Value:
+                Fn::Join:
+                  - ""
+                  - - https://s3.
+                    - Ref: AWS::Region
+                    - .amazonaws.com
+            - Name: AWS_S3_ACL
+              Value: private
+            - Name: AWS_REGION
+              Value:
+                Ref: AWS::Region
+            - Name: FORCE_HTTPS
+              Value: "true"
+            - Name: PGSSLMODE
+              Value: disable
+            - Name: REDIS_URL
+              Value:
+                Fn::Join:
+                  - ""
+                  - - redis://
+                    - Fn::GetAtt:
+                        - DatabaseRedisClusterCA8F776A
+                        - RedisEndpoint.Address
+                    - :6379
+            - Name: DB_HOST
+              Value:
+                Fn::GetAtt:
+                  - DatabaseInstanceAA8A5FDE
+                  - Endpoint.Address
+            - Name: DB_PORT
+              Value:
+                Fn::GetAtt:
+                  - DatabaseInstanceAA8A5FDE
+                  - Endpoint.Port
+            - Name: DB_NAME
+              Value: outline
+            - Name: DB_USER
+              Value: outline
+            - Name: SMTP_HOST
+              Value:
+                Ref: SmtpHost
+            - Name: SMTP_PORT
+              Value:
+                Ref: SmtpPort
+            - Name: SMTP_USERNAME
+              Value:
+                Ref: SmtpUsername
+            - Name: SMTP_PASSWORD
+              Value:
+                Ref: SmtpPassword
+            - Name: SMTP_FROM_EMAIL
+              Value:
+                Ref: SmtpFromEmail
+            - Name: SMTP_REPLY_EMAIL
+              Value:
+                Ref: SmtpReplyEmail
+          Essential: true
+          Image:
+            Ref: ContainerImage
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Ref: ComputeLogGroup1A40385B
+              awslogs-stream-prefix: outline
+              awslogs-region:
+                Ref: AWS::Region
+          Name: outline-wiki
+          PortMappings:
+            - ContainerPort: 3000
+              Protocol: tcp
+          Secrets:
+            - Name: DB_PASSWORD
+              ValueFrom:
+                Fn::Join:
+                  - ""
+                  - - Ref: DatabaseInstanceSecretAttachmentFCA06D38
+                    - ":password::"
+            - Name: DATABASE_URL
+              ValueFrom:
+                Fn::Join:
+                  - ""
+                  - - Ref: SecretsDatabaseUrlE7453004
+                    - ":DATABASE_URL::"
+            - Name: SECRET_KEY
+              ValueFrom:
+                Fn::Join:
+                  - ""
+                  - - Ref: SecretsAppConfig1DE8CB45
+                    - ":SECRET_KEY::"
+            - Name: UTILS_SECRET
+              ValueFrom:
+                Fn::Join:
+                  - ""
+                  - - Ref: SecretsUtilsSecret22A6EA10
+                    - ":UTILS_SECRET::"
+      Cpu:
+        Ref: FargateCpu
+      ExecutionRoleArn:
+        Fn::GetAtt:
+          - ComputeTaskDefExecutionRole781DCE1C
+          - Arn
+      Family:
+        Fn::Join:
+          - ""
+          - - outline-wiki-
+            - Ref: EnvName
+      Memory:
+        Ref: FargateMemory
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Tags:
+        - Key: environment
+          Value:
+            Ref: EnvName
+        - Key: project
+          Value: outline
+      TaskRoleArn:
+        Fn::GetAtt:
+          - ComputeTaskDefTaskRole10B1918B
+          - Arn
+    Metadata:
+      aws:cdk:path: Outline/Compute/TaskDef/Resource
+  ComputeTaskDefExecutionRole781DCE1C:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+        Version: "2012-10-17"
+      Tags:
+        - Key: environment
+          Value:
+            Ref: EnvName
+        - Key: project
+          Value: outline
+    Metadata:
+      aws:cdk:path: Outline/Compute/TaskDef/ExecutionRole/Resource
+  ComputeTaskDefExecutionRoleDefaultPolicy3C303926:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action:
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Effect: Allow
+            Resource:
+              Fn::GetAtt:
+                - ComputeLogGroup1A40385B
+                - Arn
+          - Action:
+              - secretsmanager:GetSecretValue
+              - secretsmanager:DescribeSecret
+            Effect: Allow
+            Resource:
+              Ref: DatabaseInstanceSecretAttachmentFCA06D38
+          - Action:
+              - secretsmanager:GetSecretValue
+              - secretsmanager:DescribeSecret
+            Effect: Allow
+            Resource:
+              Ref: SecretsDatabaseUrlE7453004
+          - Action:
+              - secretsmanager:GetSecretValue
+              - secretsmanager:DescribeSecret
+            Effect: Allow
+            Resource:
+              Ref: SecretsAppConfig1DE8CB45
+          - Action:
+              - secretsmanager:GetSecretValue
+              - secretsmanager:DescribeSecret
+            Effect: Allow
+            Resource:
+              Ref: SecretsUtilsSecret22A6EA10
+          - Action: secretsmanager:GetSecretValue
+            Effect: Allow
+            Resource:
+              Fn::Join:
+                - ""
+                - - "arn:aws:secretsmanager:"
+                  - Ref: AWS::Region
+                  - ":"
+                  - Ref: AWS::AccountId
+                  - :secret:outline/*
+        Version: "2012-10-17"
+      PolicyName: ComputeTaskDefExecutionRoleDefaultPolicy3C303926
+      Roles:
+        - Ref: ComputeTaskDefExecutionRole781DCE1C
+    Metadata:
+      aws:cdk:path: Outline/Compute/TaskDef/ExecutionRole/DefaultPolicy/Resource
+  ComputeServiceC2A22793:
+    Type: AWS::ECS::Service
+    Properties:
+      CapacityProviderStrategy:
+        - CapacityProvider: FARGATE
+          Weight: 1
+      Cluster:
+        Ref: ComputeCluster4F8E5F81
+      DeploymentConfiguration:
+        Alarms:
+          AlarmNames: []
+          Enable: false
+          Rollback: false
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+        MaximumPercent: 200
+        MinimumHealthyPercent: 50
+      DeploymentController:
+        Type: ECS
+      DesiredCount:
+        Ref: DesiredCount
+      EnableECSManagedTags: false
+      HealthCheckGracePeriodSeconds: 60
+      LoadBalancers:
+        - ContainerName: outline-wiki
+          ContainerPort: 3000
+          TargetGroupArn:
+            Ref: NetworkingAppTgEA72E7D9
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - Fn::GetAtt:
+                - NetworkingAppSg7FDCB0B9
+                - GroupId
+          Subnets:
+            Ref: SubnetIds
+      ServiceName:
+        Fn::Join:
+          - ""
+          - - outline-wiki-
+            - Ref: EnvName
+      Tags:
+        - Key: environment
+          Value:
+            Ref: EnvName
+        - Key: project
+          Value: outline
+      TaskDefinition:
+        Ref: ComputeTaskDefBA99999B
+    DependsOn:
+      - ComputeTaskDefTaskRoleDefaultPolicy70556C7B
+      - ComputeTaskDefTaskRole10B1918B
+      - NetworkingAlbHttpsListener491E99FD
+    Metadata:
+      aws:cdk:path: Outline/Compute/Service/Service
+  CDKMetadata:
+    Type: AWS::CDK::Metadata
+    Properties:
+      Analytics: v2:deflate64:H4sIAAAAAAAA/31T207DMAz9Ft6zggb7gK0TCAmJaeMdealXvLVJlThDaOq/4yRb6UDiKSfnHDu+tNNi+vBQ3N3Ap5/o6jBpaFucNgz6oMqdWYGDFhmdWqO3wWlUYnw/oZ6KC3VwxF9PzoYuuv8nnk3t0PteYQOeSTcWqi00YDSZ+ij55l3XkAYma15EWyRNnpZEV/exjzyjOXsueKS/gauRh3pG115JKqZdNGILBmp0xan84aJ/dO2VRDHO7qXONWrrqmjIaIMscuVlJGFrRu8tF2NiGOZI/8UtgWELHp+N59jsQMgkHXKOuYi98on1P+WnkUdjPnK/c5Z1frRoWA2GP0qmh+UIjTnfdUdlFMomyKidvC/TWAR9yJVlJCm0TOLsSTF/YAkdaPkuVs4eqUI3995qShvz6lFKk4G/gT8scUeGIp23d81Yw0Cy8BF3jt2gO5LG3G6CvWpsLWW92Hro5YJ7RdAWp7VtUkQ6V1Y+oa/0CyTU9xG/Bu6CdGhshcXe3x6ns2ImP8/eE01cMEwtFut8fgOx4FXtWQMAAA==
+    Metadata:
+      aws:cdk:path: Outline/CDKMetadata/Default
+    Condition: CDKMetadataAvailable
+Outputs:
+  NetworkingAlbDnsFCD6AD50:
+    Description: ALB DNS name
+    Value:
+      Fn::GetAtt:
+        - NetworkingAlb1EC41264
+        - DNSName
+  DatabaseDbEndpointC40AEC92:
+    Description: RDS endpoint
+    Value:
+      Fn::GetAtt:
+        - DatabaseInstanceAA8A5FDE
+        - Endpoint.Address
+  DatabaseDbSecretArnCBC92421:
+    Description: DB credentials secret ARN
+    Value:
+      Ref: DatabaseInstanceSecretAttachmentFCA06D38
+  DatabaseRedisEndpointA2A599D3:
+    Description: Redis endpoint
+    Value:
+      Fn::GetAtt:
+        - DatabaseRedisClusterCA8F776A
+        - RedisEndpoint.Address
+  SecretsAppConfigSecretArn09C63060:
+    Description: App config secret ARN
+    Value:
+      Ref: SecretsAppConfig1DE8CB45
+  ComputeClusterNameEC99A2A2:
+    Description: ECS cluster name
+    Value:
+      Ref: ComputeCluster4F8E5F81
+  ComputeServiceName454090EE:
+    Description: ECS service name
+    Value:
+      Fn::GetAtt:
+        - ComputeServiceC2A22793
+        - Name
+Conditions:
+  CDKMetadataAvailable:
+    Fn::Or:
+      - Fn::Or:
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - af-south-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-east-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-northeast-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-northeast-2
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-northeast-3
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-south-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-south-2
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-southeast-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-southeast-2
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-southeast-3
+      - Fn::Or:
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-southeast-4
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ca-central-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ca-west-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - cn-north-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - cn-northwest-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-central-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-central-2
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-north-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-south-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-south-2
+      - Fn::Or:
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-west-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-west-2
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-west-3
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - il-central-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - me-central-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - me-south-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - sa-east-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - us-east-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - us-east-2
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - us-west-1
+      - Fn::Equals:
+          - Ref: AWS::Region
+          - us-west-2
+
