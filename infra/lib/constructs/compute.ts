@@ -127,6 +127,10 @@ export class Compute extends Construct {
     // -- Container image ---------------------------------------------------
     // Internal mode: pull from the Gnarlysoft ECR repo passed in via props.
     // Generic mode: pull from whatever registry the customer specified.
+    // config.containerImage is a CFN parameter token at synth time, so we
+    // can't detect whether the URI points at ECR. The execution role gets
+    // ECR pull grants below so an ECR-hosted image works; a non-ECR URI
+    // simply won't exercise those permissions.
     const containerImage = isGeneric
       ? ecs.ContainerImage.fromRegistry(config.containerImage)
       : ecs.ContainerImage.fromEcrRepository(props.repo!, "latest");
@@ -146,10 +150,10 @@ export class Compute extends Construct {
       FORCE_HTTPS: "true",
       PGSSLMODE: "disable",
       REDIS_URL: `redis://${props.redisEndpoint}:6379`,
-      DB_HOST: props.dbEndpoint,
-      DB_PORT: props.dbPort,
-      DB_NAME: "outline",
-      DB_USER: "outline",
+      DATABASE_HOST: props.dbEndpoint,
+      DATABASE_PORT: props.dbPort,
+      DATABASE_NAME: "outline",
+      DATABASE_USER: "outline",
     };
 
     // SMTP env vars (generic mode only — internal mode expects them to be
@@ -174,59 +178,44 @@ export class Compute extends Construct {
       if (smtp.replyEmail) {
         baseEnv.SMTP_REPLY_EMAIL = smtp.replyEmail;
       }
+      // Outline defaults SMTP_SECURE=true (implicit TLS, port 465). The
+      // template default port is 587 which uses STARTTLS, so the socket
+      // must start plaintext and upgrade. Without this, nodemailer
+      // attempts a direct TLS handshake and fails with
+      // "tls_validate_record_header: wrong version number".
+      baseEnv.SMTP_SECURE = "false";
     }
 
     // SSO env vars — internal mode pulls from Secrets Manager, generic mode
     // takes them from CFN parameters (passed via props.ssoParameters).
+    // In generic mode `sso.provider` and the client-id/secret strings are
+    // CFN-parameter tokens, NOT literal strings — so we can't branch on
+    // `provider === "Azure"` at synth time (it's always false). Always
+    // emit every SSO env var; Outline plugins activate based on whether
+    // the client id is non-empty at runtime.
     if (!isGeneric) {
       baseEnv.AZURE_TENANT_ID = config.azureTenantId;
     } else if (props.ssoParameters) {
       const sso = props.ssoParameters;
-      const provider = sso.provider;
-
-      if (provider === "Azure") {
-        if (sso.azureTenantId) {
-          baseEnv.AZURE_TENANT_ID = sso.azureTenantId;
-        }
-        if (sso.azureClientId) {
-          baseEnv.AZURE_CLIENT_ID = sso.azureClientId;
-        }
-        if (sso.azureClientSecret) {
-          baseEnv.AZURE_CLIENT_SECRET = sso.azureClientSecret;
-        }
-      } else if (provider === "Google") {
-        if (sso.googleClientId) {
-          baseEnv.GOOGLE_CLIENT_ID = sso.googleClientId;
-        }
-        if (sso.googleClientSecret) {
-          baseEnv.GOOGLE_CLIENT_SECRET = sso.googleClientSecret;
-        }
-      } else if (provider === "OIDC") {
-        if (sso.oidcClientId) {
-          baseEnv.OIDC_CLIENT_ID = sso.oidcClientId;
-        }
-        if (sso.oidcClientSecret) {
-          baseEnv.OIDC_CLIENT_SECRET = sso.oidcClientSecret;
-        }
-        if (sso.oidcAuthUri) {
-          baseEnv.OIDC_AUTH_URI = sso.oidcAuthUri;
-        }
-        if (sso.oidcTokenUri) {
-          baseEnv.OIDC_TOKEN_URI = sso.oidcTokenUri;
-        }
-        if (sso.oidcUserInfoUri) {
-          baseEnv.OIDC_USERINFO_URI = sso.oidcUserInfoUri;
-        }
-        if (sso.oidcDisplayName) {
-          baseEnv.OIDC_DISPLAY_NAME = sso.oidcDisplayName;
-        }
-      }
+      baseEnv.AZURE_CLIENT_ID = sso.azureClientId ?? "";
+      baseEnv.AZURE_CLIENT_SECRET = sso.azureClientSecret ?? "";
+      baseEnv.AZURE_TENANT_ID = sso.azureTenantId ?? "";
+      baseEnv.GOOGLE_CLIENT_ID = sso.googleClientId ?? "";
+      baseEnv.GOOGLE_CLIENT_SECRET = sso.googleClientSecret ?? "";
+      baseEnv.OIDC_CLIENT_ID = sso.oidcClientId ?? "";
+      baseEnv.OIDC_CLIENT_SECRET = sso.oidcClientSecret ?? "";
+      baseEnv.OIDC_AUTH_URI = sso.oidcAuthUri ?? "";
+      baseEnv.OIDC_TOKEN_URI = sso.oidcTokenUri ?? "";
+      baseEnv.OIDC_USERINFO_URI = sso.oidcUserInfoUri ?? "";
+      baseEnv.OIDC_DISPLAY_NAME = sso.oidcDisplayName ?? "SSO";
     }
 
     // -- Secrets (Secrets Manager → ECS) ----------------------------------
+    // Outline reads DATABASE_PASSWORD (env) or DATABASE_URL (env). Using
+    // the discrete DATABASE_* vars avoids a DATABASE_URL placeholder
+    // clashing with CannotUseWith("DATABASE_URL") in env.ts.
     const baseSecrets: Record<string, ecs.Secret> = {
-      DB_PASSWORD: ecs.Secret.fromSecretsManager(props.dbSecret, "password"),
-      DATABASE_URL: ecs.Secret.fromSecretsManager(props.databaseUrlSecret, "DATABASE_URL"),
+      DATABASE_PASSWORD: ecs.Secret.fromSecretsManager(props.dbSecret, "password"),
       SECRET_KEY: ecs.Secret.fromSecretsManager(props.appConfigSecret, "SECRET_KEY"),
       UTILS_SECRET: ecs.Secret.fromSecretsManager(props.utilsSecret, "UTILS_SECRET"),
     };
@@ -257,6 +246,32 @@ export class Compute extends Construct {
         `arn:aws:secretsmanager:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:secret:outline/*`,
       ],
     }));
+
+    // -- IAM: grant execution role ECR pull (generic mode only) -----------
+    // config.containerImage is a CFN parameter token so we can't detect
+    // whether the URI is ECR at synth time. Grant ECR pull unconditionally
+    // scoped to the stack's account/region — harmless if the image lives
+    // elsewhere (Docker Hub, GHCR), required when it's ECR.
+    if (isGeneric) {
+      taskDef.executionRole?.addToPrincipalPolicy(
+        new iam.PolicyStatement({
+          actions: ["ecr:GetAuthorizationToken"],
+          resources: ["*"],
+        })
+      );
+      taskDef.executionRole?.addToPrincipalPolicy(
+        new iam.PolicyStatement({
+          actions: [
+            "ecr:BatchCheckLayerAvailability",
+            "ecr:GetDownloadUrlForLayer",
+            "ecr:BatchGetImage",
+          ],
+          resources: [
+            `arn:aws:ecr:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:repository/*`,
+          ],
+        })
+      );
+    }
 
     // -- IAM: grant task role access to S3 bucket -------------------------
 

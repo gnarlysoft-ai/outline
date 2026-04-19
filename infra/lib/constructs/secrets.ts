@@ -46,11 +46,13 @@ export class Secrets extends Construct {
     } else {
       this.appConfig = new secretsmanager.Secret(this, "AppConfig", {
         secretName: `outline/${props.config.envName}/secret-key`,
-        description: "Outline SECRET_KEY (auto-generated)",
+        description: "Outline SECRET_KEY (auto-generated, 64-char hex)",
         generateSecretString: {
           secretStringTemplate: JSON.stringify({}),
           generateStringKey: "SECRET_KEY",
           excludePunctuation: true,
+          excludeUppercase: true,
+          excludeCharacters: "ghijklmnopqrstuvwxyz",
           passwordLength: 64,
         },
       });
@@ -70,7 +72,7 @@ export class Secrets extends Construct {
         secretName: `outline/${props.config.envName}/database-url`,
         description: "Outline DATABASE_URL (unused; DB_* env vars are used instead)",
         secretStringValue: cdk.SecretValue.unsafePlainText(
-          "postgres://placeholder"
+          JSON.stringify({ DATABASE_URL: "postgres://placeholder" })
         ),
       });
     }
