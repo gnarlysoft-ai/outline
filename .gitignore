@@ -5,6 +5,7 @@ node_modules/*
 .env.local
 .env.production
 .deploy.env
+infra/lib/config.internal.ts
 .log
 .vscode/*
 npm-debug.log

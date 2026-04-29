@@ -1,6 +1,6 @@
 ---
 name: deploy-to-aws
-description: Deploys this Outline fork into the user's own AWS account using the CloudFormation template at cfn/outline.yml. Use when the user has forked or cloned this repo and wants to get Outline running on their own AWS infrastructure. Triggers on phrases like "deploy to AWS", "set this up on AWS", "install this fork", "get this running", "deploy my Outline", or when the user asks how to launch this repo into production. Covers AWS CLI preflight, IAM permission guidance, Docker image build and ECR push, CloudFormation deploy with interactive parameter interview, and post-deploy SSO finalization.
+description: Deploys this Outline fork to the user's own AWS account, and updates an existing deployment with the latest code from upstream outline/outline. Use when the user has forked or cloned this repo and wants to (a) stand Outline up for the first time, or (b) pull in new upstream changes and redeploy. Triggers include "deploy to AWS", "set this up on AWS", "install this fork", "get this running", "deploy my Outline", "update from upstream", "sync with upstream", "pull the latest Outline", "upgrade my Outline", "redeploy with the new upstream code". Covers AWS CLI preflight, IAM permission guidance, Docker image build + ECR push, CloudFormation deploy via interactive parameter interview, and an upstream-sync + redeploy workflow with human checkpoints at merge conflicts and before the stack update.
 ---
 
 # Deploy This Outline Fork to AWS
@@ -39,7 +39,20 @@ directly. Don't dump docs; don't run opaque scripts.
   `cfn/outline.yml` as-is unless the user specifically asks to modify
   `infra/`.
 
-## Workflow
+## Two workflows
+
+Pick which one based on what the user is asking:
+
+- **Workflow A — First deploy** (this section onwards). Trigger: "deploy",
+  "set up", "install", "get this running". Produces a fresh stack from
+  nothing.
+- **Workflow B — Update from upstream**. Trigger: "update", "sync",
+  "pull latest", "upgrade". Used when a stack already exists. Read
+  `references/update-from-upstream.md` for the full flow.
+
+Both workflows reuse the same `.deploy.env` file and AWS profile.
+
+## Workflow A — First deploy
 
 ### Step 1 — Preflight
 
@@ -156,7 +169,10 @@ DB_INSTANCE_CLASS=t4g.small
 DB_STORAGE_GB=50
 FARGATE_CPU=1024
 FARGATE_MEMORY=2048
-DESIRED_COUNT=2
+MIN_TASK_COUNT=2
+MAX_TASK_COUNT=6
+TARGET_CPU_UTILIZATION=60
+TARGET_REQUESTS_PER_TARGET=50
 
 # SMTP (required for magic-link + invitations — see step 2e)
 SMTP_HOST=
@@ -442,7 +458,10 @@ PARAMS=(
   "DbStorageGb=$DB_STORAGE_GB"
   "FargateCpu=$FARGATE_CPU"
   "FargateMemory=$FARGATE_MEMORY"
-  "DesiredCount=$DESIRED_COUNT"
+  "MinTaskCount=$MIN_TASK_COUNT"
+  "MaxTaskCount=$MAX_TASK_COUNT"
+  "TargetCpuUtilization=$TARGET_CPU_UTILIZATION"
+  "TargetRequestsPerTarget=$TARGET_REQUESTS_PER_TARGET"
 )
 
 # Add only the SSO params for the chosen provider
@@ -526,6 +545,9 @@ Load these only when needed:
 - **`references/ses.md`** — AWS SES setup: identity verification,
   sandbox exit, SMTP credential derivation. Read during step 2e when
   the user picks SES.
+- **`references/update-from-upstream.md`** — Workflow B (fetch + merge
+  upstream, rebuild image, update the existing stack). Read when the
+  user asks to sync/update/upgrade from upstream.
 - **`references/troubleshooting.md`** — Stack failures, ECS task issues,
   DNS and HTTPS problems. Read on failure.
 

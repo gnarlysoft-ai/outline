@@ -6,6 +6,7 @@ import { Database } from "./constructs/database";
 import { Registry } from "./constructs/registry";
 import { Secrets } from "./constructs/secrets";
 import { Compute } from "./constructs/compute";
+import { Monitoring } from "./constructs/monitoring";
 
 export interface OutlineStackProps extends cdk.StackProps {
   readonly config: EnvironmentConfig;
@@ -57,6 +58,14 @@ export class OutlineStack extends cdk.Stack {
       databaseUrlSecret: secrets.databaseUrl,
       repo: registry.repo,
       targetGroup: networking.appTargetGroup,
+    });
+
+    // -- Monitoring (RDS / Redis / ALB 5xx alarms) ------------------------
+    new Monitoring(this, "Monitoring", {
+      config,
+      dbInstance: database.instance,
+      redisClusterName: database.redisCluster.clusterName!,
+      alb: networking.alb,
     });
   }
 }

@@ -5,6 +5,7 @@ import { Networking } from "./constructs/networking";
 import { Database } from "./constructs/database";
 import { Secrets } from "./constructs/secrets";
 import { Compute, type SSOParameters, type SMTPParameters } from "./constructs/compute";
+import { Monitoring } from "./constructs/monitoring";
 
 /**
  * Customer-facing CloudFormation stack.
@@ -184,11 +185,30 @@ export class GenericOutlineStack extends cdk.Stack {
       default: 2048,
       description: "Fargate task memory in MiB. Must be compatible with chosen CPU.",
     });
-    const desiredCount = new cdk.CfnParameter(this, "DesiredCount", {
+    const minTaskCount = new cdk.CfnParameter(this, "MinTaskCount", {
       type: "Number",
       default: 2,
       minValue: 1,
-      description: "Number of ECS tasks to run.",
+      description: "Minimum number of ECS tasks. Also the initial task count on first deploy. Application Auto Scaling won't scale below this.",
+    });
+    const maxTaskCount = new cdk.CfnParameter(this, "MaxTaskCount", {
+      type: "Number",
+      default: 6,
+      minValue: 1,
+      description: "Maximum number of ECS tasks. Caps Fargate spend during scale-out.",
+    });
+    const targetCpuUtilization = new cdk.CfnParameter(this, "TargetCpuUtilization", {
+      type: "Number",
+      default: 60,
+      minValue: 10,
+      maxValue: 90,
+      description: "Target average task CPU utilization (percent). Auto-scaling adds tasks when the average exceeds this.",
+    });
+    const targetRequestsPerTarget = new cdk.CfnParameter(this, "TargetRequestsPerTarget", {
+      type: "Number",
+      default: 50,
+      minValue: 1,
+      description: "Target ALB requests per task per minute. Auto-scaling adds tasks when the average exceeds this.",
     });
 
     // -- Build config -----------------------------------------------------
@@ -207,7 +227,10 @@ export class GenericOutlineStack extends cdk.Stack {
       dbStorageGb: dbStorageGb.valueAsNumber,
       fargateCpu: fargateCpu.valueAsNumber,
       fargateMemory: fargateMemory.valueAsNumber,
-      desiredCount: desiredCount.valueAsNumber,
+      minTaskCount: minTaskCount.valueAsNumber,
+      maxTaskCount: maxTaskCount.valueAsNumber,
+      targetCpuUtilization: targetCpuUtilization.valueAsNumber,
+      targetRequestsPerTarget: targetRequestsPerTarget.valueAsNumber,
       ssoProvider: ssoProvider.valueAsString,
       azureTenantId: azureTenantId.valueAsString,
     };
@@ -268,6 +291,13 @@ export class GenericOutlineStack extends cdk.Stack {
       smtpParameters,
     });
 
+    new Monitoring(this, "Monitoring", {
+      config,
+      dbInstance: database.instance,
+      redisClusterName: database.redisCluster.clusterName!,
+      alb: networking.alb,
+    });
+
     // -- Parameter groupings for the CFN Console UX -----------------------
 
     this.templateOptions.metadata = {
@@ -320,7 +350,10 @@ export class GenericOutlineStack extends cdk.Stack {
               "DbStorageGb",
               "FargateCpu",
               "FargateMemory",
-              "DesiredCount",
+              "MinTaskCount",
+              "MaxTaskCount",
+              "TargetCpuUtilization",
+              "TargetRequestsPerTarget",
             ],
           },
         ],

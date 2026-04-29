@@ -23,6 +23,7 @@ export class Database extends Construct {
   public readonly dbSecret: secretsmanager.ISecret;
   public readonly dbEndpoint: string;
   public readonly dbPort: string;
+  public readonly redisCluster: elasticache.CfnCacheCluster;
   public readonly redisEndpoint: string;
 
   constructor(scope: Construct, id: string, props: DatabaseProps) {
@@ -102,7 +103,7 @@ export class Database extends Construct {
       subnetIds: config.subnetIds,
     });
 
-    const redisCluster = new elasticache.CfnCacheCluster(this, "RedisCluster", {
+    this.redisCluster = new elasticache.CfnCacheCluster(this, "RedisCluster", {
       engine: "redis",
       cacheNodeType: "cache.t4g.micro",
       numCacheNodes: 1,
@@ -112,9 +113,9 @@ export class Database extends Construct {
       engineVersion: "7.1",
     });
 
-    redisCluster.addDependency(redisSubnetGroup);
+    this.redisCluster.addDependency(redisSubnetGroup);
 
-    this.redisEndpoint = redisCluster.attrRedisEndpointAddress;
+    this.redisEndpoint = this.redisCluster.attrRedisEndpointAddress;
 
     // -- Outputs ----------------------------------------------------------
 

@@ -59,8 +59,17 @@ export interface EnvironmentConfig {
   /** Fargate memory (in MiB). */
   readonly fargateMemory: number;
 
-  /** Desired task count. */
-  readonly desiredCount: number;
+  /** Lower bound for Application Auto Scaling; also used as the service's initial desired count. */
+  readonly minTaskCount: number;
+
+  /** Upper bound for Application Auto Scaling. Hard ceiling on Fargate spend. */
+  readonly maxTaskCount: number;
+
+  /** Target CPU utilization (percent) for the CPU target-tracking policy. */
+  readonly targetCpuUtilization: number;
+
+  /** Target ALB requests per target per minute for the request-count target-tracking policy. */
+  readonly targetRequestsPerTarget: number;
 
   // -- SSO --------------------------------------------------------------
 
@@ -79,24 +88,49 @@ export interface EnvironmentConfig {
 // Internal (Gnarlysoft) configs
 // ---------------------------------------------------------------------------
 //
-// Before making this repository public, move the account ID, VPC ID,
-// subnet IDs, hosted zone ID, and Azure tenant ID out of this file (e.g.
-// into a gitignored `config.internal.ts` loaded via `process.env` or
-// `app.node.tryGetContext`). None of these values are credentials, but
-// unnecessary exposure of internal infra identifiers is not ideal.
+// Account-specific values (account ID, VPC ID, subnet IDs, hosted zone ID,
+// tenant ID) live in the gitignored `config.internal.ts` so they do not get
+// committed to the public fork. To bootstrap a new internal-mode deploy,
+// copy `config.internal.ts.example` to `config.internal.ts` and edit.
+//
+// Generic-mode (CloudFormation) deploys do not need that file — they bypass
+// `getConfig()` entirely and feed values from CfnParameters at deploy time.
 
-const INTERNAL_SHARED = {
-  mode: "internal" as const,
-  account: "809015461931",
-  region: "us-east-1",
-  vpcId: "vpc-889621f2",
-  subnetIds: ["subnet-065945a74d9f344b8", "subnet-439ff96d"],
-  domain: "wiki.gnarlysoft.com",
-  hostedZoneId: "Z01372345YL6LKC37MDH",
-  azureTenantId: "f64ae4c4-b8e2-453a-97bb-8e73450aed49",
-  ssoProvider: "Azure",
+type InternalSharedShape = Pick<
+  EnvironmentConfig,
+  | "mode"
+  | "account"
+  | "region"
+  | "vpcId"
+  | "subnetIds"
+  | "domain"
+  | "hostedZoneId"
+  | "azureTenantId"
+  | "ssoProvider"
+  | "containerImage"
+>;
+
+const PLACEHOLDER_INTERNAL_SHARED: InternalSharedShape = {
+  mode: "internal",
+  account: "",
+  region: "",
+  vpcId: "",
+  subnetIds: [],
+  domain: "",
+  hostedZoneId: "",
+  azureTenantId: "",
+  ssoProvider: "",
   containerImage: "",
 };
+
+let INTERNAL_SHARED: InternalSharedShape = PLACEHOLDER_INTERNAL_SHARED;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  INTERNAL_SHARED = (require("./config.internal") as { INTERNAL_SHARED: InternalSharedShape }).INTERNAL_SHARED;
+} catch {
+  // config.internal.ts not present — only generic mode is usable.
+  // getConfig() below throws a helpful error if internal mode is invoked.
+}
 
 const configs: Record<string, EnvironmentConfig> = {
   dev: {
@@ -108,7 +142,10 @@ const configs: Record<string, EnvironmentConfig> = {
 
     fargateCpu: 512,
     fargateMemory: 1024,
-    desiredCount: 1,
+    minTaskCount: 2,
+    maxTaskCount: 8,
+    targetCpuUtilization: 60,
+    targetRequestsPerTarget: 50,
   },
 
   prod: {
@@ -120,7 +157,10 @@ const configs: Record<string, EnvironmentConfig> = {
 
     fargateCpu: 1024,
     fargateMemory: 2048,
-    desiredCount: 2,
+    minTaskCount: 2,
+    maxTaskCount: 6,
+    targetCpuUtilization: 60,
+    targetRequestsPerTarget: 50,
   },
 };
 
@@ -129,12 +169,20 @@ const configs: Record<string, EnvironmentConfig> = {
  *
  * @param env - environment key (e.g. "dev", "prod").
  * @returns the matching environment config.
- * @throws if the environment name is not recognised.
+ * @throws if the environment name is not recognised, or if internal mode is
+ *   requested but `infra/lib/config.internal.ts` is missing.
  */
 export function getConfig(env: string): EnvironmentConfig {
   const config = configs[env];
   if (!config) {
     throw new Error(`Unknown environment: ${env}. Valid: ${Object.keys(configs).join(", ")}`);
+  }
+  if (config.mode === "internal" && !config.account) {
+    throw new Error(
+      "Internal-mode deploy requires infra/lib/config.internal.ts. " +
+        "Copy infra/lib/config.internal.ts.example and fill in your values, " +
+        "or use the generic CloudFormation flow instead (yarn cdk:synth-cfn)."
+    );
   }
   return config;
 }

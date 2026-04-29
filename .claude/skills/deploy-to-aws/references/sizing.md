@@ -5,10 +5,14 @@ are production-viable — the differences are headroom and redundancy. All
 estimates are **rough monthly AWS costs in us-east-1, excluding data
 transfer**, as of 2026.
 
+> Fargate cost scales with the *current* running task count, not the max.
+> The min/max range defines the spend ceiling — you only pay for the
+> extra tasks when auto-scaling activates under load.
+
 ## Small — up to ~20 users
 
-Cheapest usable deploy. Single Fargate task, so brief downtime during
-deploys and task restarts.
+Cheapest usable deploy. Single task at idle; scales to 2 during bursts.
+Expect brief downtime during deploys and task restarts at min=1.
 
 | CFN parameter | Value |
 |---------------|-------|
@@ -16,16 +20,17 @@ deploys and task restarts.
 | `DbStorageGb` | `20` |
 | `FargateCpu` | `512` |
 | `FargateMemory` | `1024` |
-| `DesiredCount` | `1` |
+| `MinTaskCount` | `1` |
+| `MaxTaskCount` | `2` |
 
-**Est. monthly cost: ~$40–60/month**
+**Est. monthly cost: ~$40–60/month** (at 1 task average)
 (RDS t4g.micro + 20GB: ~$17, Fargate 1×0.5vCPU/1GB: ~$15, Redis t4g.micro:
 ~$12, ALB: ~$18, S3 / misc: negligible.)
 
 ## Medium — up to ~100 users (default)
 
-Comfortable for most small teams. Two Fargate tasks, so rolling deploys
-stay available.
+Comfortable for most small teams. 2-task floor keeps rolling deploys
+available; scales up to 6 during peak.
 
 | CFN parameter | Value |
 |---------------|-------|
@@ -33,9 +38,10 @@ stay available.
 | `DbStorageGb` | `50` |
 | `FargateCpu` | `1024` |
 | `FargateMemory` | `2048` |
-| `DesiredCount` | `2` |
+| `MinTaskCount` | `2` |
+| `MaxTaskCount` | `6` |
 
-**Est. monthly cost: ~$100–150/month**
+**Est. monthly cost: ~$100–150/month** (at 2 tasks average)
 
 ## Large — up to ~500 users
 
@@ -49,9 +55,10 @@ CFN template does not parametrize those).
 | `DbStorageGb` | `100` |
 | `FargateCpu` | `2048` |
 | `FargateMemory` | `4096` |
-| `DesiredCount` | `3` |
+| `MinTaskCount` | `3` |
+| `MaxTaskCount` | `10` |
 
-**Est. monthly cost: ~$300–450/month**
+**Est. monthly cost: ~$300–450/month** (at 3 tasks average)
 
 ## Picking a tier
 

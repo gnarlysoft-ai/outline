@@ -283,7 +283,7 @@ export class Compute extends Construct {
       cluster: this.cluster,
       taskDefinition: taskDef,
       serviceName: `outline-wiki-${config.envName}`,
-      desiredCount: config.desiredCount,
+      desiredCount: config.minTaskCount,
       assignPublicIp: true,
       vpcSubnets: { subnets: props.subnets },
       securityGroups: [props.appSecurityGroup],
@@ -294,6 +294,29 @@ export class Compute extends Construct {
     });
 
     props.targetGroup.addTarget(service);
+
+    // -- Application Auto Scaling -----------------------------------------
+    // Two target-tracking policies: CPU handles sustained compute pressure,
+    // request-count reacts faster to traffic bursts before CPU catches up.
+    // Both policies auto-create their own CloudWatch alarms — we only
+    // need to wire them up here.
+    const scaling = service.autoScaleTaskCount({
+      minCapacity: config.minTaskCount,
+      maxCapacity: config.maxTaskCount,
+    });
+
+    scaling.scaleOnCpuUtilization("CpuScaling", {
+      targetUtilizationPercent: config.targetCpuUtilization,
+      scaleInCooldown: cdk.Duration.seconds(300),
+      scaleOutCooldown: cdk.Duration.seconds(60),
+    });
+
+    scaling.scaleOnRequestCount("RequestCountScaling", {
+      requestsPerTarget: config.targetRequestsPerTarget,
+      targetGroup: props.targetGroup,
+      scaleInCooldown: cdk.Duration.seconds(300),
+      scaleOutCooldown: cdk.Duration.seconds(60),
+    });
 
     // -- Outputs ----------------------------------------------------------
 

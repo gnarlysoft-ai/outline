@@ -1,0 +1,20 @@
+/**
+ * Template for internal-mode (CDK) deploys. Copy to `config.internal.ts`
+ * and fill in your values. The real file is gitignored.
+ *
+ * If you're forking and want a one-shot CloudFormation deploy instead,
+ * skip this file entirely — `cfn/outline.yml` + the deploy-to-aws skill
+ * cover that flow without any code changes.
+ */
+export const INTERNAL_SHARED = {
+  mode: "internal" as const,
+  account: "111111111111",
+  region: "us-east-1",
+  vpcId: "vpc-xxxxxxxx",
+  subnetIds: ["subnet-xxxxxxxx", "subnet-yyyyyyyy"],
+  domain: "wiki.example.com",
+  hostedZoneId: "ZXXXXXXXXXXXXX",
+  azureTenantId: "00000000-0000-0000-0000-000000000000",
+  ssoProvider: "Azure",
+  containerImage: "",
+};
