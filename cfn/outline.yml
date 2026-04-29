@@ -1313,7 +1313,7 @@ Resources:
     Type: AWS::CloudWatch::Alarm
     Properties:
       ActionsEnabled: false
-      AlarmDescription: RDS FreeableMemory below 256 MiB for 10 minutes. Consider a larger DbInstanceClass.
+      AlarmDescription: RDS FreeableMemory below 100 MiB for 10 minutes. Consider a larger DbInstanceClass.
       AlarmName:
         Fn::Join:
           - ""
@@ -1337,7 +1337,7 @@ Resources:
             Ref: EnvName
         - Key: project
           Value: outline
-      Threshold: 268435456
+      Threshold: 104857600
       TreatMissingData: notBreaching
     Metadata:
       aws:cdk:path: Outline/Monitoring/RdsLowMemory/Resource

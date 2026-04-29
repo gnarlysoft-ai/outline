@@ -39,11 +39,14 @@ export class Monitoring extends Construct {
       actionsEnabled: false,
     });
 
+    // 100 MiB threshold is a universal floor — Postgres instances of any
+    // size legitimately steady-state above this. Higher thresholds (e.g.
+    // 256 MiB) false-alarm on t4g.micro, which idles at ~180 MiB free.
     new cloudwatch.Alarm(this, "RdsLowMemory", {
       alarmName: `Outline-${envName}-RdsLowMemory`,
-      alarmDescription: "RDS FreeableMemory below 256 MiB for 10 minutes. Consider a larger DbInstanceClass.",
+      alarmDescription: "RDS FreeableMemory below 100 MiB for 10 minutes. Consider a larger DbInstanceClass.",
       metric: dbInstance.metricFreeableMemory({ period: cdk.Duration.minutes(5) }),
-      threshold: 256 * 1024 * 1024,
+      threshold: 100 * 1024 * 1024,
       evaluationPeriods: 2,
       datapointsToAlarm: 2,
       comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_OR_EQUAL_TO_THRESHOLD,
