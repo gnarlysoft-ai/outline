@@ -889,6 +889,8 @@ Resources:
                     - Ref: Domain
             - Name: FILE_STORAGE
               Value: s3
+            - Name: FILE_STORAGE_UPLOAD_MAX_SIZE
+              Value: "10485760"
             - Name: AWS_S3_UPLOAD_BUCKET_NAME
               Value:
                 Ref: ComputeAttachmentsBucketCAE07D70
@@ -1413,7 +1415,7 @@ Resources:
   CDKMetadata:
     Type: AWS::CDK::Metadata
     Properties:
-      Analytics: v2:deflate64:H4sIAAAAAAAA/31T227iMBD9lr6b7IotHwBBrSpVWkR4X02cIXVx7MgeU1Uo/75jG0LSSn2a8Zkz9/GyWD4+Fr8f4MMvZHNaaFUXl4pAnkR5NDtw0CGhE3v0NjiJgon/LiiXzEIZnKLPZ2dDH9k/Ay+mdej9IFCDJyW1haYGDUYq05453rrvtZJAyppXtm2SjVNzoNl7ylOe0Fw5N31iP4BrkcZ6Js9BcChSx0jEDgy06IpLeccif/IcBHsRrv5wnXuU1jWRkLUKic2N55GE2kzybTdTYBzmxP4F2wJBDR5fjKfY7AjwJB1S9rkZB+ET6u/lp5FHYha53zXxOt86NCRGwjdLhsflMIw53ryjMhpKHXjUjvPzNDZBnnJlWeMQkidx5SSfb2oJPUi+i52zZ9WgW3tvpUob8+KJS+OBH8CftnhURkU4b2+OWEOgeOET7OpboTsribndrFaSz6fWKWxpg+E6tW250Ffbjt3d9EEo6IrL3uoUI8md5aP6TJ8iaYOA+51BIOs5A18yH8GYKs44FTFHsjg4/mTsUGW/e/wZwHeqbWg+gOQbn54G10VOUoYhqn8D9YHbMbbB4t3/Oi9XxYp/9LtXauG4U9Vhsc/yP7QMgFLuAwAA
+      Analytics: v2:deflate64:H4sIAAAAAAAA/31TTY/aMBD9LXs3rght75DVViutVES4V8NkCF4cG9ljELL836vYEEJX6mnevHkzno+kktXPSs5f4OJn2B5nWu1kbBjwKOq9WYODnpic2JC3wSEJuPg/kbCSsSEMTvH1l7PhNKj/T7ybzpH3SZAGzwq1hXYHGgwq050rGZenk1YIrKz5sNCucozcUOjJn+qUZzI3zR1P4ltwHfHYz8RNAsmx2g9C6sFAR07G+sEN+ombhLOB6cdCxuWG0Lp2EBTUECfhWi9jE3Zm8t7rakqMy5zE/+FegWEHnt6N52HYkWgIHXHJuQeT8Jn1j/bzygdhMWXeJTPgoSfDYhR8iRR6PA7ggUq954nqIVDr4JlcEn4h4yrgsXRWUBKEXsabJud8gTWcABVf186eVUtu6b1FlS/mxRu4Dpi24I+vtFdGDXS53jNjDYMy5CbcLbchd1ZIZdwCGwQNO53L1jYYTkLbzsv4YbtxujtOQkEv48bqXCPbtdUKr/mnyCgJeHxnENh6BK1MJ+PjqWHHuYlnppitAzwq0zUl71H/iUgCtQ3tBRgPMi41uH7QZJDSAH8HPgVOwtiW5Kf/dq6+y/lCzl8+vVIzFwyrnuSm2L9EN0897wMAAA==
     Metadata:
       aws:cdk:path: Outline/CDKMetadata/Default
     Condition: CDKMetadataAvailable
