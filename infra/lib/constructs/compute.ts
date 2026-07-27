@@ -10,6 +10,13 @@ import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import { Construct } from "constructs";
 import type { EnvironmentConfig } from "../config";
 
+/**
+ * Maximum attachment upload size. Outline enforces this in the client, in
+ * attachments.create, and in the content-length-range of the S3 presigned
+ * post. Without it Outline falls back to its built-in 1MB default.
+ */
+const UPLOAD_MAX_SIZE_BYTES = 10 * 1024 * 1024;
+
 export interface SSOParameters {
   readonly provider: string;
   readonly googleClientId?: string;
@@ -141,6 +148,7 @@ export class Compute extends Construct {
       PORT: "3000",
       URL: `https://${config.domain}`,
       FILE_STORAGE: "s3",
+      FILE_STORAGE_UPLOAD_MAX_SIZE: String(UPLOAD_MAX_SIZE_BYTES),
       AWS_S3_UPLOAD_BUCKET_NAME: attachmentsBucket.bucketName,
       AWS_S3_UPLOAD_BUCKET_URL: isGeneric
         ? `https://s3.${cdk.Aws.REGION}.amazonaws.com`
