@@ -3,5 +3,6 @@
   "context": {
     "env": "dev"
   },
-  "requireApproval": "broadening"
+  "requireApproval": "broadening",
+  "versionReporting": false
 }
