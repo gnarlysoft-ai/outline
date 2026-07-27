@@ -170,14 +170,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      # setup-node activates the root package.json "packageManager" field, and
-      # the runner's global Yarn 1 refuses to stand in for Yarn 4. Every other
-      # job enables Corepack first; without it this one fails before it runs.
+      # This job builds only infra/, which uses npm — but setup-node defaults
+      # package-manager-cache to true, reads the root package.json
+      # "packageManager" field, and caches Yarn's store. That probe shells out
+      # to Yarn (so Corepack must be on, as every other job does), and the
+      # post-job save then fails on a cache miss because nothing here ever runs
+      # `yarn install` to create the store. Opt out of the cache entirely.
       - name: Enable Corepack
         run: corepack enable
       - uses: actions/setup-node@v5
         with:
           node-version: 22.x
+          package-manager-cache: false
       - name: Install infra deps
         working-directory: infra
         run: npm install
