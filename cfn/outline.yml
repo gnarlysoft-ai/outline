@@ -942,9 +942,6 @@ Resources:
             - Name: SMTP_USERNAME
               Value:
                 Ref: SmtpUsername
-            - Name: SMTP_PASSWORD
-              Value:
-                Ref: SmtpPassword
             - Name: SMTP_FROM_EMAIL
               Value:
                 Ref: SmtpFromEmail
@@ -956,24 +953,15 @@ Resources:
             - Name: AZURE_CLIENT_ID
               Value:
                 Ref: AzureClientId
-            - Name: AZURE_CLIENT_SECRET
-              Value:
-                Ref: AzureClientSecret
             - Name: AZURE_TENANT_ID
               Value:
                 Ref: AzureTenantId
             - Name: GOOGLE_CLIENT_ID
               Value:
                 Ref: GoogleClientId
-            - Name: GOOGLE_CLIENT_SECRET
-              Value:
-                Ref: GoogleClientSecret
             - Name: OIDC_CLIENT_ID
               Value:
                 Ref: OIDCClientId
-            - Name: OIDC_CLIENT_SECRET
-              Value:
-                Ref: OIDCClientSecret
             - Name: OIDC_AUTH_URI
               Value:
                 Ref: OIDCAuthUri
@@ -1020,6 +1008,30 @@ Resources:
                   - ""
                   - - Ref: SecretsUtilsSecret22A6EA10
                     - ":UTILS_SECRET::"
+            - Name: SMTP_PASSWORD
+              ValueFrom:
+                Fn::Join:
+                  - ""
+                  - - Ref: ComputeCredentialsSecretB189EEE4
+                    - ":SMTP_PASSWORD::"
+            - Name: AZURE_CLIENT_SECRET
+              ValueFrom:
+                Fn::Join:
+                  - ""
+                  - - Ref: ComputeCredentialsSecretB189EEE4
+                    - ":AZURE_CLIENT_SECRET::"
+            - Name: GOOGLE_CLIENT_SECRET
+              ValueFrom:
+                Fn::Join:
+                  - ""
+                  - - Ref: ComputeCredentialsSecretB189EEE4
+                    - ":GOOGLE_CLIENT_SECRET::"
+            - Name: OIDC_CLIENT_SECRET
+              ValueFrom:
+                Fn::Join:
+                  - ""
+                  - - Ref: ComputeCredentialsSecretB189EEE4
+                    - ":OIDC_CLIENT_SECRET::"
       Cpu:
         Ref: FargateCpu
       ExecutionRoleArn:
@@ -1097,6 +1109,12 @@ Resources:
             Effect: Allow
             Resource:
               Ref: SecretsUtilsSecret22A6EA10
+          - Action:
+              - secretsmanager:GetSecretValue
+              - secretsmanager:DescribeSecret
+            Effect: Allow
+            Resource:
+              Ref: ComputeCredentialsSecretB189EEE4
           - Action: secretsmanager:GetSecretValue
             Effect: Allow
             Resource:
@@ -1129,6 +1147,36 @@ Resources:
         - Ref: ComputeTaskDefExecutionRole781DCE1C
     Metadata:
       aws:cdk:path: Outline/Compute/TaskDef/ExecutionRole/DefaultPolicy/Resource
+  ComputeCredentialsSecretB189EEE4:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: Outline SMTP password and SSO client secrets, from the stack's NoEcho parameters.
+      Name:
+        Fn::Join:
+          - ""
+          - - outline/
+            - Ref: EnvName
+            - /credentials
+      SecretString:
+        Fn::Join:
+          - ""
+          - - '{"SMTP_PASSWORD":"'
+            - Ref: SmtpPassword
+            - '","AZURE_CLIENT_SECRET":"'
+            - Ref: AzureClientSecret
+            - '","GOOGLE_CLIENT_SECRET":"'
+            - Ref: GoogleClientSecret
+            - '","OIDC_CLIENT_SECRET":"'
+            - Ref: OIDCClientSecret
+            - '"}'
+      Tags:
+        - Key: environment
+          Value:
+            Ref: EnvName
+        - Key: project
+          Value: outline
+    Metadata:
+      aws:cdk:path: Outline/Compute/CredentialsSecret
   ComputeServiceC2A22793:
     Type: AWS::ECS::Service
     Properties:

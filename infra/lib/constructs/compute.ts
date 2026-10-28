@@ -177,9 +177,6 @@ export class Compute extends Construct {
       if (smtp.username) {
         baseEnv.SMTP_USERNAME = smtp.username;
       }
-      if (smtp.password) {
-        baseEnv.SMTP_PASSWORD = smtp.password;
-      }
       if (smtp.fromEmail) {
         baseEnv.SMTP_FROM_EMAIL = smtp.fromEmail;
       }
@@ -206,12 +203,9 @@ export class Compute extends Construct {
     } else if (props.ssoParameters) {
       const sso = props.ssoParameters;
       baseEnv.AZURE_CLIENT_ID = sso.azureClientId ?? "";
-      baseEnv.AZURE_CLIENT_SECRET = sso.azureClientSecret ?? "";
       baseEnv.AZURE_TENANT_ID = sso.azureTenantId ?? "";
       baseEnv.GOOGLE_CLIENT_ID = sso.googleClientId ?? "";
-      baseEnv.GOOGLE_CLIENT_SECRET = sso.googleClientSecret ?? "";
       baseEnv.OIDC_CLIENT_ID = sso.oidcClientId ?? "";
-      baseEnv.OIDC_CLIENT_SECRET = sso.oidcClientSecret ?? "";
       baseEnv.OIDC_AUTH_URI = sso.oidcAuthUri ?? "";
       baseEnv.OIDC_TOKEN_URI = sso.oidcTokenUri ?? "";
       baseEnv.OIDC_USERINFO_URI = sso.oidcUserInfoUri ?? "";
@@ -231,6 +225,37 @@ export class Compute extends Construct {
     if (!isGeneric) {
       baseSecrets.AZURE_CLIENT_ID = ecs.Secret.fromSecretsManager(props.appConfigSecret, "AZURE_CLIENT_ID");
       baseSecrets.AZURE_CLIENT_SECRET = ecs.Secret.fromSecretsManager(props.appConfigSecret, "AZURE_CLIENT_SECRET");
+    } else {
+      // Generic mode: the secret CFN parameters are NoEcho, but as plain env
+      // vars anyone who can read the task definition would see them. Store
+      // them in one Secrets Manager secret and give the task only a reference.
+      // CFN joins the values into the JSON as-is, so they must not contain `"` or `\`.
+      const credentials: Record<string, string> = {};
+      if (props.smtpParameters?.password) {
+        credentials.SMTP_PASSWORD = props.smtpParameters.password;
+      }
+      if (props.ssoParameters) {
+        const sso = props.ssoParameters;
+        credentials.AZURE_CLIENT_SECRET = sso.azureClientSecret ?? "";
+        credentials.GOOGLE_CLIENT_SECRET = sso.googleClientSecret ?? "";
+        credentials.OIDC_CLIENT_SECRET = sso.oidcClientSecret ?? "";
+      }
+
+      const credentialsSecret = new secretsmanager.CfnSecret(this, "CredentialsSecret", {
+        name: `outline/${config.envName}/credentials`,
+        description: "Outline SMTP password and SSO client secrets, from the stack's NoEcho parameters.",
+        secretString: cdk.Stack.of(this).toJsonString(credentials),
+      });
+      // Ref of AWS::SecretsManager::Secret is the full secret ARN
+      const credentialsSecretRef = secretsmanager.Secret.fromSecretCompleteArn(
+        this,
+        "CredentialsSecretRef",
+        credentialsSecret.ref
+      );
+
+      for (const name of Object.keys(credentials)) {
+        baseSecrets[name] = ecs.Secret.fromSecretsManager(credentialsSecretRef, name);
+      }
     }
 
     const container = taskDef.addContainer("OutlineContainer", {
